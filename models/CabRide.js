@@ -1,5 +1,5 @@
 // models/CabRide.js
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
 const CabRideSchema = new mongoose.Schema(
   {
@@ -67,4 +67,4 @@ const CabRideSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model("CabRide", CabRideSchema);
+module.exports = mongoose.model("CabRide", schema);

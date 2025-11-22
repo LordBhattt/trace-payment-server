@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
 const driverSchema = new mongoose.Schema(
   {
@@ -18,4 +18,4 @@ const driverSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model("Driver", driverSchema);
+module.exports = mongoose.model("driver", schema);
