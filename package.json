@@ -4,7 +4,7 @@
   "description": "TRACE - Cab Booking Backend API",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node /opt/render/project/server.js"
   },
   "keywords": [
     "cab",
