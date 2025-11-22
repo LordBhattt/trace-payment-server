@@ -80,4 +80,4 @@ userSchema.pre("save", function (next) {
 });
 
 const User = mongoose.model("User", userSchema);
-module.exports = mongoose.model("User", userschema);
+module.exports = mongoose.model("User", Userschema);
