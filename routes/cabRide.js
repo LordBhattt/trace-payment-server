@@ -1,3 +1,4 @@
+// routes/cabride.js
 const express = require('express');
 const CabRide = require("../models/CabRide");
 const authMiddleware = require("../middleware/auth");
@@ -5,7 +6,33 @@ const authMiddleware = require("../middleware/auth");
 const router = express.Router();
 
 /* ---------------------------------------------------
+   🔥 PRICING LOGIC (Backend Authoritative)
+---------------------------------------------------- */
+function calculateFare(distanceKm, etaMin, foodStops) {
+  const BASE_FARE = 50;           // ₹50 base
+  const PER_KM = 12;              // ₹12/km
+  const PER_MIN = 2;              // ₹2/min
+  const PER_STOP = 15;            // ₹15 per food stop
+
+  const baseFare = BASE_FARE;
+  const distanceFare = Math.round(distanceKm * PER_KM);
+  const timeFare = Math.round(etaMin * PER_MIN);
+  const foodStopFare = foodStops * PER_STOP;
+
+  const totalFare = baseFare + distanceFare + timeFare + foodStopFare;
+
+  return {
+    baseFare,
+    distanceFare,
+    timeFare,
+    foodStopFare,
+    totalFare,
+  };
+}
+
+/* ---------------------------------------------------
    CREATE RIDE
+   🔥 FIX: Backend computes REAL fare + sets status to "confirmed"
 ---------------------------------------------------- */
 router.post("/create", authMiddleware, async (req, res) => {
   try {
@@ -14,9 +41,12 @@ router.post("/create", authMiddleware, async (req, res) => {
       drop,
       distanceKm,
       etaMin,
-      price,
+      foodStops = 0,
       selectedSuggestions = [],
     } = req.body;
+
+    // 🔥 Backend computes authoritative pricing
+    const pricing = calculateFare(distanceKm, etaMin, foodStops);
 
     const ride = await CabRide.create({
       userId: req.user.id,
@@ -24,9 +54,10 @@ router.post("/create", authMiddleware, async (req, res) => {
       drop,
       distanceKm,
       etaMin,
-      price: price ?? null,                 // frontend calculates fare later
+      foodStops,
+      pricing,
       selectedSuggestions,
-      status: "pending",
+      status: "confirmed",           // 🔥 FIX: Set to confirmed immediately
       confirmedAt: new Date(),
     });
 
@@ -40,10 +71,86 @@ router.post("/create", authMiddleware, async (req, res) => {
 });
 
 /* ---------------------------------------------------
+   🔥 NEW: UPDATE RIDE STATUS
+   PATCH /api/cabride/update-status
+   
+   Supports status transitions:
+   - confirmed → assigned
+   - assigned → arriving
+   - arriving → atPickup
+   - atPickup → started
+   - started → completed
+---------------------------------------------------- */
+router.patch("/update-status", authMiddleware, async (req, res) => {
+  try {
+    const { rideId, status } = req.body;
+
+    const validStatuses = [
+      "confirmed",
+      "assigned",
+      "arriving",
+      "atPickup",
+      "started",
+      "completed",
+    ];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    const ride = await CabRide.findOne({
+      _id: rideId,
+      userId: req.user.id,
+    });
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found",
+      });
+    }
+
+    // Don't allow status updates on cancelled/paid rides
+    if (ride.status === "cancelled" || ride.status === "paid") {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot update status of cancelled/paid ride",
+      });
+    }
+
+    ride.status = status;
+
+    // 🔥 Track important timestamps
+    if (status === "started" && !ride.startedAt) {
+      ride.startedAt = new Date();
+    }
+    
+    if (status === "completed" && !ride.completedAt) {
+      ride.completedAt = new Date();
+    }
+
+    await ride.save();
+
+    return res.json({ success: true, ride });
+  } catch (err) {
+    console.error("Update Status Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update ride status",
+    });
+  }
+});
+
+/* ---------------------------------------------------
    CANCEL RIDE
+   🔥 FIX: Enhanced cancel logic
+   
    RULES:
-   - Cannot cancel after completion
-   - Cannot cancel after 3 minutes
+   - Cannot cancel if status = started/completed/paid
+   - Cannot cancel after 3 minutes from confirmedAt
 ---------------------------------------------------- */
 router.post("/cancel", authMiddleware, async (req, res) => {
   try {
@@ -60,14 +167,15 @@ router.post("/cancel", authMiddleware, async (req, res) => {
         .json({ success: false, message: "Ride not found" });
     }
 
-    if (ride.status === "completed") {
+    // 🔥 FIX: Check if ride has started or completed
+    if (["started", "completed", "paid"].includes(ride.status)) {
       return res.status(400).json({
         success: false,
-        message: "Ride already completed — cannot cancel",
+        message: `Cannot cancel ride — status is ${ride.status}`,
       });
     }
 
-    // check 3-minute rule
+    // 🔥 FIX: Check 3-minute window
     const diffMin =
       (Date.now() - new Date(ride.confirmedAt).getTime()) / 60000;
 
@@ -92,7 +200,8 @@ router.post("/cancel", authMiddleware, async (req, res) => {
 
 /* ---------------------------------------------------
    MARK RIDE COMPLETED
-   (Called AFTER payment verification)
+   🔥 FIX: Only sets status to "completed", NOT paid
+   Payment happens separately via /payment/verify
 ---------------------------------------------------- */
 router.post("/complete", authMiddleware, async (req, res) => {
   try {
@@ -109,11 +218,13 @@ router.post("/complete", authMiddleware, async (req, res) => {
         .json({ success: false, message: "Ride not found" });
     }
 
-    if (ride.status === "completed") {
+    // Idempotent
+    if (ride.status === "completed" || ride.status === "paid") {
       return res.json({ success: true, ride });
     }
 
     ride.status = "completed";
+    ride.completedAt = new Date();
     await ride.save();
 
     return res.json({ success: true, ride });

@@ -30,22 +30,55 @@ router.get("/key", authMiddleware, (req, res) => {
 /* ---------------------------------------------------------
    CREATE ORDER
    POST /api/payment/create-order
+   
+   🔥 FIX: Accept rideId and compute amount from DB
+   This prevents client-side fare manipulation
 --------------------------------------------------------- */
 router.post("/create-order", authMiddleware, async (req, res) => {
   try {
-    const { amount } = req.body;
+    const { rideId } = req.body;
+
+    if (!rideId) {
+      return res.status(400).json({
+        success: false,
+        message: "rideId is required",
+      });
+    }
+
+    // 🔥 Fetch ride from DB to get authoritative fare
+    const ride = await CabRide.findOne({
+      _id: rideId,
+      userId: req.user.id,
+    });
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found",
+      });
+    }
+
+    if (ride.status !== "completed") {
+      return res.status(400).json({
+        success: false,
+        message: "Ride must be completed before payment",
+      });
+    }
+
+    // 🔥 Use backend-computed fare (AUTHORITATIVE)
+    const amount = ride.pricing.totalFare;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid amount",
+        message: "Invalid fare amount",
       });
     }
 
     const options = {
       amount: Math.round(amount * 100), // convert to paise
       currency: "INR",
-      receipt: "trace_" + Date.now(),
+      receipt: `trace_${rideId}_${Date.now()}`,
     };
 
     const order = await razorpay.orders.create(options);
@@ -54,6 +87,7 @@ router.post("/create-order", authMiddleware, async (req, res) => {
       success: true,
       orderId: order.id,
       amount,
+      ride,
     });
   } catch (err) {
     console.error("Order Error:", err);
@@ -67,6 +101,8 @@ router.post("/create-order", authMiddleware, async (req, res) => {
 /* ---------------------------------------------------------
    VERIFY PAYMENT
    POST /api/payment/verify
+   
+   🔥 FIX: Idempotent + returns full ride object
 --------------------------------------------------------- */
 router.post("/verify", authMiddleware, async (req, res) => {
   try {
@@ -76,6 +112,28 @@ router.post("/verify", authMiddleware, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Missing fields",
+      });
+    }
+
+    // Fetch ride
+    const ride = await CabRide.findOne({
+      _id: rideId,
+      userId: req.user.id,
+    });
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found",
+      });
+    }
+
+    // 🔥 FIX: Idempotent check
+    if (ride.isPaid && ride.paymentId === paymentId) {
+      return res.json({
+        success: true,
+        message: "Payment already verified",
+        ride,
       });
     }
 
@@ -92,29 +150,19 @@ router.post("/verify", authMiddleware, async (req, res) => {
       });
     }
 
-    // Valid signature → update ride as PAID (NOT completed)
-    const ride = await CabRide.findOne({
-      _id: rideId,
-      userId: req.user.id,
-    });
-
-    if (!ride) {
-      return res.status(404).json({
-        success: false,
-        message: "Ride not found",
-      });
-    }
-
+    // 🔥 Valid signature → update ride
     ride.paymentId = paymentId;
     ride.orderId = orderId;
     ride.signature = signature;
     ride.isPaid = true;
     ride.status = "paid";
+    ride.paidAt = new Date();
 
     await ride.save();
 
     return res.json({
       success: true,
+      message: "Payment verified successfully",
       ride,
     });
   } catch (err) {
