@@ -9,11 +9,6 @@
     "start": "node server.js"
   }
 }
-```
-
-Then in Render, set the start command to:
-```
-npm start
   },
   "keywords": [
     "cab",
