@@ -1,6 +1,5 @@
 // routes/auth.js
 const express = require('express');
-const Something = require('./somewhere');
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";

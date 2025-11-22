@@ -1,6 +1,5 @@
 // routes/ride.js
 const express = require('express');
-const Something = require('./somewhere');
 import authMiddleware from "../middleware/auth.js";
 import Ride from "../models/Ride.js"; // old model, kept for compatibility
 

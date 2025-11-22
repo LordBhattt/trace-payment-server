@@ -1,6 +1,5 @@
 // routes/user.js
 const express = require('express');
-const Something = require('./somewhere');
 import authMiddleware from "../middleware/auth.js";
 import User from "../models/User.js";
 import CabRide from "../models/CabRide.js";

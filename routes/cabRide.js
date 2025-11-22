@@ -1,5 +1,4 @@
 const express = require('express');
-const Something = require('./somewhere');
 import CabRide from "../models/CabRide.js";
 import authMiddleware from "../middleware/auth.js";
 
