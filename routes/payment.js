@@ -1,10 +1,11 @@
 // routes/payment.js
-import express from "express";
-import Razorpay from "razorpay";
-import crypto from "crypto";
-import dotenv from "dotenv";
-import CabRide from "../models/CabRide.js";
-import authMiddleware from "../middleware/auth.js";
+const express = require("express");
+const Razorpay = require("razorpay");
+const crypto = require("crypto");
+const dotenv = require("dotenv");
+const CabRide = require("../models/CabRide");
+const authMiddleware = require("../middleware/auth");
+
 
 dotenv.config();
 
