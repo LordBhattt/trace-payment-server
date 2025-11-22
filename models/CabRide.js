@@ -67,4 +67,4 @@ const CabRideSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("CabRide", schema);
+module.exports = mongoose.model("CabRide", CabRideSchema);
