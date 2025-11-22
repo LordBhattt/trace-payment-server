@@ -2,7 +2,6 @@
   "name": "trace-backend",
   "version": "1.0.0",
   "description": "TRACE - Cab Booking Backend API",
-  "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
