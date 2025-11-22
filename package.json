@@ -4,9 +4,16 @@
   "description": "TRACE - Cab Booking Backend API",
   "type": "module",
   "main": "server.js",
+{
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js"
+  }
+}
+```
+
+Then in Render, set the start command to:
+```
+npm start
   },
   "keywords": [
     "cab",
