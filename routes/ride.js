@@ -1,7 +1,7 @@
 // routes/ride.js
 const express = require('express');
-import authMiddleware from "../middleware/auth.js";
-import Ride from "../models/Ride.js"; // old model, kept for compatibility
+const authMiddleware = require("../middleware/auth");
+const Ride = require("../models/ride"); // old model, kept for compatibility
 
 const router = express.Router();
 

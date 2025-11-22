@@ -1,6 +1,6 @@
 const express = require('express');
-import CabRide from "../models/CabRide.js";
-import authMiddleware from "../middleware/auth.js";
+const CabRide = require("../models/CabRide");
+const authMiddleware = require("../middleware/auth");
 
 const router = express.Router();
 

@@ -1,8 +1,8 @@
 // routes/user.js
 const express = require('express');
-import authMiddleware from "../middleware/auth.js";
-import User from "../models/User.js";
-import CabRide from "../models/CabRide.js";
+const authMiddleware = require("../middleware/auth");
+const User = require("../models/User");
+const CabRide = require("../models/CabRide");
 
 const router = express.Router();
 

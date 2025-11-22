@@ -1,8 +1,8 @@
 // routes/auth.js
 const express = require('express');
-import User from "../models/User.js";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcryptjs";
+const User = require("../models/User");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
 const router = express.Router();
 
