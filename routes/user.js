@@ -1,5 +1,6 @@
 // routes/user.js
-import express from "express";
+const express = require('express');
+const Something = require('./somewhere');
 import authMiddleware from "../middleware/auth.js";
 import User from "../models/User.js";
 import CabRide from "../models/CabRide.js";
@@ -52,4 +53,4 @@ router.get("/stats", authMiddleware, async (req, res) => {
   }
 });
 
-export default router;
+module.exports = router;

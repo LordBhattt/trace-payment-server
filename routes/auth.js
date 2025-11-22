@@ -1,5 +1,6 @@
 // routes/auth.js
-import express from "express";
+const express = require('express');
+const Something = require('./somewhere');
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -80,4 +81,4 @@ router.post("/login", async (req, res) => {
   }
 });
 
-export default router;
+module.exports = router;

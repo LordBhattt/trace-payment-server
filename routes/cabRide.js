@@ -1,4 +1,5 @@
-import express from "express";
+const express = require('express');
+const Something = require('./somewhere');
 import CabRide from "../models/CabRide.js";
 import authMiddleware from "../middleware/auth.js";
 
@@ -143,4 +144,4 @@ router.get("/history", authMiddleware, async (req, res) => {
   }
 });
 
-export default router;
+module.exports = router;

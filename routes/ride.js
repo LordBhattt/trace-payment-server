@@ -1,5 +1,6 @@
 // routes/ride.js
-import express from "express";
+const express = require('express');
+const Something = require('./somewhere');
 import authMiddleware from "../middleware/auth.js";
 import Ride from "../models/Ride.js"; // old model, kept for compatibility
 
@@ -27,4 +28,4 @@ router.post("/create", authMiddleware, async (req, res) => {
   }
 });
 
-export default router;
+module.exports = router;
