@@ -1,6 +1,5 @@
 // routes/payment.js
 const express = require('express');
-const Something = require('./somewhere');
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const dotenv = require("dotenv");
