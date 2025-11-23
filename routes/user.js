@@ -1,111 +1,83 @@
-// routes/user.js
-const express = require("express");
-const User = require("../models/User");
-const CabRide = require("../models/CabRide");
-const authMiddleware = require("../middleware/auth");
-
+// routes/user.js (or routes/auth.js)
+const express = require('express');
 const router = express.Router();
+const auth = require('../middleware/auth');
+const User = require('../models/User');
 
-/* ===================================
-   UPDATE FCM TOKEN
-=================================== */
-router.post("/fcm-token", authMiddleware, async (req, res) => {
+// Get user profile
+router.get('/profile', auth, async (req, res) => {
   try {
-    const { token } = req.body;
-
-    if (!token) {
-      return res.status(400).json({
-        success: false,
-        message: "FCM token is required",
-      });
-    }
-
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { fcmToken: token },
-      { new: true }
-    );
-
-    return res.json({
-      success: true,
-      message: "FCM token updated",
-    });
-  } catch (err) {
-    console.error("Update FCM Token Error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    const user = await User.findById(req.user.id).select('-password');
+    res.json({ success: true, user });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-/* ===================================
-   GET USER PROFILE
-=================================== */
-router.get("/profile", authMiddleware, async (req, res) => {
+// Get user stats
+router.get('/stats', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("-password");
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    return res.json({
-      success: true,
-      user,
-    });
-  } catch (err) {
-    console.error("Get Profile Error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
-  }
-});
-
-/* ===================================
-   GET USER STATS
-=================================== */
-router.get("/stats", authMiddleware, async (req, res) => {
-  try {
-    const totalRides = await CabRide.countDocuments({ userId: req.user.id });
-    const completedRides = await CabRide.countDocuments({
+    const CabRide = require('../models/CabRide');
+    
+    const totalRides = await CabRide.countDocuments({ 
       userId: req.user.id,
-      status: "paid",
+      status: { $in: ['completed', 'paid'] }
     });
-
-    const earnings = await CabRide.aggregate([
-      { $match: { userId: req.user.id, isPaid: true } },
-      { $group: { _id: null, total: { $sum: "$pricing.totalFare" } } },
-    ]);
-
-    const totalSpent = earnings.length > 0 ? earnings[0].total : 0;
-
-    // Calculate distance
-    const distanceData = await CabRide.aggregate([
-      { $match: { userId: req.user.id, isPaid: true } },
-      { $group: { _id: null, total: { $sum: "$distanceKm" } } },
-    ]);
-
-    const totalDistance = distanceData.length > 0 ? distanceData[0].total : 0;
-
-    return res.json({
-      success: true,
+    
+    const rides = await CabRide.find({ 
+      userId: req.user.id,
+      status: { $in: ['completed', 'paid'] }
+    });
+    
+    let totalDistance = 0;
+    let totalSpent = 0;
+    
+    rides.forEach(ride => {
+      totalDistance += ride.distanceKm || 0;
+      totalSpent += ride.fare?.total || 0;
+    });
+    
+    res.json({ 
+      success: true, 
       stats: {
         totalRides,
-        completedRides,
-        totalSpent,
-        totalDistance: Math.round(totalDistance * 10) / 10,
-      },
+        totalDistance: totalDistance.toFixed(2),
+        totalSpent: totalSpent.toFixed(2),
+      }
     });
-  } catch (err) {
-    console.error("Get User Stats Error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ✅ ADD THIS - Update FCM Token
+router.post('/fcm-token', auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'FCM token is required' 
+      });
+    }
+    
+    await User.findByIdAndUpdate(req.user.id, { 
+      fcmToken: token,
+      fcmTokenUpdatedAt: new Date()
+    });
+    
+    console.log(`✅ FCM token updated for user ${req.user.id}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'FCM token updated successfully' 
+    });
+  } catch (error) {
+    console.error('❌ Error updating FCM token:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
     });
   }
 });
