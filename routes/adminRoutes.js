@@ -6,7 +6,8 @@ const jwt = require('jsonwebtoken');
 const Driver = require('../models/Driver');
 const CabRide = require('../models/CabRide'); // ✅ use CabRide
 const User = require('../models/User');
-const Payment = require("../models/Payment");
+const CabRide = require("../models/CabRide");
+
 
 // ===== ADMIN LOGIN =====
 router.post('/login', async (req, res) => {
