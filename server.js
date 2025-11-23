@@ -9,19 +9,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Route imports - ONLY ONCE EACH
+// Route imports - ✅ FIXED NAMES
 const authRoutes = require('./routes/auth');
-const rideRoutes = require('./routes/cabride');
+const rideRoutes = require('./routes/cabride');      // lowercase
 const paymentRoutes = require('./routes/payment');
-const adminRoutes = require('./routes/admin');    // ✅ ONLY ONCE
-const userRoutes = require('./routes/user');      // ✅ ONLY ONCE
+const adminRoutes = require('./routes/admin');       // lowercase
+const userRoutes = require('./routes/user');
 
-// Route mapping - ONLY ONCE EACH
+// Route mapping
 app.use('/api/auth', authRoutes);
 app.use('/api/cabride', rideRoutes);
 app.use('/api/payment', paymentRoutes);
-app.use('/api/admin', adminRoutes);     // ✅ ONLY ONCE
-app.use('/api/user', userRoutes);       // ✅ ONLY ONCE
+app.use('/api/admin', adminRoutes);
+app.use('/api/user', userRoutes);
 
 // Health check
 app.get('/', (req, res) => {
