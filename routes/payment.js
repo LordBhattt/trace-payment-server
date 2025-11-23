@@ -30,7 +30,7 @@ router.get("/key", authMiddleware, (req, res) => {
 /* ---------------------------------------------------------
    CREATE ORDER
    POST /api/payment/create-order
-   (🔥 Fixed receipt length issue)
+   (🔥 Fixed receipt length issue - GUARANTEED < 40 chars)
 --------------------------------------------------------- */
 router.post("/create-order", authMiddleware, async (req, res) => {
   try {
@@ -73,14 +73,15 @@ router.post("/create-order", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔥 FIX: Razorpay receipt must be < 40 chars
-    const shortId = rideId.toString().slice(-6);
-    const timeShort = Date.now().toString().slice(-4);
+    // 🔥 FIX: Generate receipt GUARANTEED to be < 40 chars
+    const rideShort = rideId.toString().slice(-8); // Last 8 chars of rideId
+    const timestamp = Date.now().toString(36).slice(-6); // Last 6 chars in base36
+    const receipt = `r_${rideShort}_${timestamp}`; // Total: 2 + 8 + 1 + 6 = 17 chars max
 
     const options = {
       amount: Math.round(amount * 100), // paise
       currency: "INR",
-      receipt: `rcpt_${shortId}_${timeShort}`, // ALWAYS < 40 chars
+      receipt: receipt,
     };
 
     const order = await razorpay.orders.create(options);
@@ -96,6 +97,7 @@ router.post("/create-order", authMiddleware, async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Order creation failed",
+      error: err.message, // Added for debugging
     });
   }
 });
@@ -170,6 +172,7 @@ router.post("/verify", authMiddleware, async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Payment verification failed",
+      error: err.message, // Added for debugging
     });
   }
 });
