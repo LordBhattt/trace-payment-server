@@ -1,22 +1,19 @@
-// routes/adminRoutes.js
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 
 const Driver = require('../models/Driver');
-const CabRide = require('../models/CabRide'); // ✅ use CabRide
 const User = require('../models/User');
-const CabRide = require("../models/CabRide");
-
+const CabRide = require('../models/CabRide'); // ✅ single correct import
 
 // ===== ADMIN LOGIN =====
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // Hardcoded admin credentials (can move to .env later)
+    // Hardcoded admin credentials
     const ADMIN_USERNAME = 'admin';
-    const ADMIN_PASSWORD = 'admin123'; // 🔒 change this in production
+    const ADMIN_PASSWORD = 'admin123';
 
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
       const token = jwt.sign(
@@ -39,7 +36,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ===== MIDDLEWARE: Check if admin token is valid =====
+// ===== MIDDLEWARE: ADMIN AUTH =====
 const adminAuth = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -74,20 +71,21 @@ router.get('/stats', adminAuth, async (req, res) => {
     const totalUsers = await User.countDocuments();
     const totalDrivers = await Driver.countDocuments();
     const onlineDrivers = await Driver.countDocuments({ online: true });
+
     const totalRides = await CabRide.countDocuments();
 
-    // TRACE status flow: pending / confirmed / assigned / arriving / atPickup / started / completed / cancelled / paid
-    const liveStatuses = ['pending', 'confirmed', 'assigned', 'arriving', 'atPickup', 'started'];
+    const liveStatuses = [
+      'pending', 'confirmed', 'assigned', 'arriving',
+      'atPickup', 'started'
+    ];
+
     const liveRides = await CabRide.countDocuments({ status: { $in: liveStatuses } });
 
     const completedRides = await CabRide.find({ status: 'completed' });
 
     const totalRevenue = completedRides.reduce((sum, ride) => {
-      const totalFare =
-        ride.pricing && typeof ride.pricing.totalFare === 'number'
-          ? ride.pricing.totalFare
-          : 0;
-      return sum + totalFare;
+      const fare = ride.pricing?.totalFare || 0;
+      return sum + fare;
     }, 0);
 
     res.json({
@@ -145,9 +143,7 @@ router.post('/drivers', adminAuth, async (req, res) => {
 // Update driver
 router.put('/drivers/:id', adminAuth, async (req, res) => {
   try {
-    const driver = await Driver.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
+    const driver = await Driver.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json({ driver, message: 'Driver updated' });
   } catch (error) {
     console.error('Update driver error:', error);
@@ -166,7 +162,7 @@ router.delete('/drivers/:id', adminAuth, async (req, res) => {
   }
 });
 
-// Approve/reject driver
+// Approve driver
 router.patch('/drivers/:id/approve', adminAuth, async (req, res) => {
   try {
     const { approved } = req.body;
@@ -185,14 +181,15 @@ router.patch('/drivers/:id/approve', adminAuth, async (req, res) => {
   }
 });
 
-// ===== LIVE RIDES (CabRide) =====
+// ===== LIVE RIDES =====
 router.get('/rides/live', adminAuth, async (req, res) => {
   try {
-    const liveStatuses = ['pending', 'confirmed', 'assigned', 'arriving', 'atPickup', 'started'];
+    const liveStatuses = [
+      'pending', 'confirmed', 'assigned', 'arriving',
+      'atPickup', 'started'
+    ];
 
-    const liveRides = await CabRide.find({
-      status: { $in: liveStatuses },
-    })
+    const liveRides = await CabRide.find({ status: { $in: liveStatuses } })
       .populate('userId', 'name phone')
       .populate('driverId', 'name phone vehicleNumber')
       .sort({ createdAt: -1 });
@@ -204,32 +201,27 @@ router.get('/rides/live', adminAuth, async (req, res) => {
   }
 });
 
-// ===== ALL RIDES (CabRide) =====
+// ===== ALL RIDES =====
 router.get('/rides', adminAuth, async (req, res) => {
   try {
     const { page = 1, limit = 50, status } = req.query;
 
     const query = {};
-    if (status) {
-      query.status = status;
-    }
-
-    const numericLimit = Number(limit) || 50;
-    const numericPage = Number(page) || 1;
+    if (status) query.status = status;
 
     const rides = await CabRide.find(query)
       .populate('userId', 'name phone')
       .populate('driverId', 'name phone vehicleNumber')
       .sort({ createdAt: -1 })
-      .limit(numericLimit)
-      .skip((numericPage - 1) * numericLimit);
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit));
 
     const total = await CabRide.countDocuments(query);
 
     res.json({
       rides,
-      totalPages: Math.ceil(total / numericLimit),
-      currentPage: numericPage,
+      totalPages: Math.ceil(total / limit),
+      currentPage: Number(page),
     });
   } catch (error) {
     console.error('All rides error:', error);
@@ -237,21 +229,18 @@ router.get('/rides', adminAuth, async (req, res) => {
   }
 });
 
-// ===== EARNINGS & PAYMENTS (CabRide) =====
+// ===== EARNINGS =====
 router.get('/earnings', adminAuth, async (req, res) => {
   try {
     const completedRides = await CabRide.find({ status: 'completed' });
 
     const totalEarnings = completedRides.reduce((sum, ride) => {
-      const totalFare =
-        ride.pricing && typeof ride.pricing.totalFare === 'number'
-          ? ride.pricing.totalFare
-          : 0;
-      return sum + totalFare;
+      const fare = ride.pricing?.totalFare || 0;
+      return sum + fare;
     }, 0);
 
     const totalRides = completedRides.length;
-    const avgFare = totalRides > 0 ? totalEarnings / totalRides : 0;
+    const avgFare = totalRides ? totalEarnings / totalRides : 0;
 
     // Today's earnings
     const today = new Date();
@@ -259,11 +248,8 @@ router.get('/earnings', adminAuth, async (req, res) => {
 
     const todayRides = completedRides.filter((r) => r.createdAt >= today);
     const todayEarnings = todayRides.reduce((sum, ride) => {
-      const totalFare =
-        ride.pricing && typeof ride.pricing.totalFare === 'number'
-          ? ride.pricing.totalFare
-          : 0;
-      return sum + totalFare;
+      const fare = ride.pricing?.totalFare || 0;
+      return sum + fare;
     }, 0);
 
     res.json({
@@ -279,37 +265,44 @@ router.get('/earnings', adminAuth, async (req, res) => {
   }
 });
 
-// OPTIONAL: list recent payments
+// ===== PAYMENT HISTORY (from CabRide) =====
 router.get('/payments', adminAuth, async (req, res) => {
   try {
-    const payments = await Payment.find()
+    const rides = await CabRide.find({ isPaid: true })
       .populate('userId', 'name phone')
-      .populate('rideId')
-      .sort({ createdAt: -1 })
-      .limit(100);
+      .populate('driverId', 'name phone vehicleNumber')
+      .sort({ paidAt: -1 });
+
+    const payments = rides.map((r) => ({
+      rideId: r._id,
+      user: r.userId,
+      driver: r.driverId,
+      amount: r.pricing?.totalFare || 0,
+      paymentId: r.paymentId,
+      orderId: r.orderId,
+      paidAt: r.paidAt,
+    }));
 
     res.json({ payments });
   } catch (error) {
-    console.error('Payments error:', error);
+    console.error('Payment list error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ===== MANUAL RIDE ASSIGNMENT (CabRide) =====
+// ===== MANUAL RIDE ASSIGN =====
 router.patch('/rides/:id/assign', adminAuth, async (req, res) => {
   try {
     const { driverId } = req.body;
 
     const driver = await Driver.findById(driverId);
-    if (!driver) {
-      return res.status(404).json({ error: 'Driver not found' });
-    }
+    if (!driver) return res.status(404).json({ error: 'Driver not found' });
 
     const ride = await CabRide.findByIdAndUpdate(
       req.params.id,
       {
         driverId,
-        status: 'assigned', // TRACE-style status
+        status: 'assigned',
         acceptedAt: new Date(),
       },
       { new: true }
@@ -317,9 +310,7 @@ router.patch('/rides/:id/assign', adminAuth, async (req, res) => {
       .populate('userId', 'name phone')
       .populate('driverId', 'name phone vehicleNumber');
 
-    if (!ride) {
-      return res.status(404).json({ error: 'Ride not found' });
-    }
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
 
     res.json({ ride, message: 'Driver assigned manually' });
   } catch (error) {
