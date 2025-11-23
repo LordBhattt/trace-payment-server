@@ -1,12 +1,18 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+// Add to server.js
+const userRoutes = require('./routes/user');
+
+const adminRoutes = require('./routes/admin');
 require('dotenv').config();
 
 const app = express();
 
 // Middleware
+app.use('/api/user', userRoutes);
 app.use(cors());
+app.use('/api/admin', adminRoutes);
 app.use(express.json());
 
 // Route imports

@@ -6,6 +6,10 @@ const dotenv = require("dotenv");
 const CabRide = require("../models/CabRide");
 const authMiddleware = require("../middleware/auth");
 
+// ⭐ Added for notifications
+const { sendNotification } = require("../services/notificationService");
+const User = require("../models/User");
+
 dotenv.config();
 
 const router = express.Router();
@@ -30,7 +34,6 @@ router.get("/key", authMiddleware, (req, res) => {
 /* ---------------------------------------------------------
    CREATE ORDER
    POST /api/payment/create-order
-   (🔥 Fixed receipt length issue - GUARANTEED < 40 chars)
 --------------------------------------------------------- */
 router.post("/create-order", authMiddleware, async (req, res) => {
   try {
@@ -43,7 +46,6 @@ router.post("/create-order", authMiddleware, async (req, res) => {
       });
     }
 
-    // Fetch ride from DB for authoritative fare
     const ride = await CabRide.findOne({
       _id: rideId,
       userId: req.user.id,
@@ -63,7 +65,6 @@ router.post("/create-order", authMiddleware, async (req, res) => {
       });
     }
 
-    // Fare from backend only
     const amount = ride.pricing.totalFare;
 
     if (!amount || amount <= 0) {
@@ -73,18 +74,16 @@ router.post("/create-order", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔥 FIX: Generate receipt GUARANTEED to be < 40 chars
-    const rideShort = rideId.toString().slice(-8); // Last 8 chars of rideId
-    const timestamp = Date.now().toString(36).slice(-6); // Last 6 chars in base36
-    const receipt = `r_${rideShort}_${timestamp}`; // Total: 2 + 8 + 1 + 6 = 17 chars max
+    // Receipt guaranteed < 40 chars
+    const rideShort = rideId.toString().slice(-8);
+    const timestamp = Date.now().toString(36).slice(-6);
+    const receipt = `r_${rideShort}_${timestamp}`;
 
-    const options = {
-      amount: Math.round(amount * 100), // paise
+    const order = await razorpay.orders.create({
+      amount: Math.round(amount * 100),
       currency: "INR",
-      receipt: receipt,
-    };
-
-    const order = await razorpay.orders.create(options);
+      receipt,
+    });
 
     return res.json({
       success: true,
@@ -97,7 +96,7 @@ router.post("/create-order", authMiddleware, async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Order creation failed",
-      error: err.message, // Added for debugging
+      error: err.message,
     });
   }
 });
@@ -117,7 +116,6 @@ router.post("/verify", authMiddleware, async (req, res) => {
       });
     }
 
-    // Fetch ride
     const ride = await CabRide.findOne({
       _id: rideId,
       userId: req.user.id,
@@ -130,7 +128,7 @@ router.post("/verify", authMiddleware, async (req, res) => {
       });
     }
 
-    // Idempotent check
+    // Already paid (idempotent)
     if (ride.isPaid && ride.paymentId === paymentId) {
       return res.json({
         success: true,
@@ -139,7 +137,7 @@ router.post("/verify", authMiddleware, async (req, res) => {
       });
     }
 
-    // Validate signature
+    // Signature validation
     const expectedSig = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(orderId + "|" + paymentId)
@@ -162,6 +160,28 @@ router.post("/verify", authMiddleware, async (req, res) => {
 
     await ride.save();
 
+    /* ---------------------------------------------------------
+       🔥 SEND PAYMENT SUCCESS NOTIFICATION TO USER
+    --------------------------------------------------------- */
+    try {
+      const user = await User.findById(req.user.id);
+
+      if (user && user.fcmToken) {
+        await sendNotification(
+          user.fcmToken,
+          "Payment Successful!",
+          `₹${ride.pricing.totalFare} paid successfully. Thank you for riding with TRACE!`,
+          {
+            type: "payment_success",
+            rideId: ride._id.toString(),
+            amount: ride.pricing.totalFare.toString(),
+          }
+        );
+      }
+    } catch (notifyErr) {
+      console.error("Notification send error:", notifyErr);
+    }
+
     return res.json({
       success: true,
       message: "Payment verified successfully",
@@ -172,7 +192,7 @@ router.post("/verify", authMiddleware, async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Payment verification failed",
-      error: err.message, // Added for debugging
+      error: err.message,
     });
   }
 });

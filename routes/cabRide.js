@@ -4,7 +4,165 @@ const CabRide = require("../models/CabRide");
 const authMiddleware = require("../middleware/auth");
 
 const router = express.Router();
+// Add at the top of routes/cabride.js
+const { sendNotification } = require("../services/notificationService");
+const User = require("../models/User");
 
+// Then update your endpoints:
+
+/* ---------------------------------------------------
+   CREATE RIDE - Add notification after creation
+---------------------------------------------------- */
+router.post("/create", authMiddleware, async (req, res) => {
+  try {
+    const {
+      pickup,
+      drop,
+      distanceKm,
+      etaMin,
+      foodStops = 0,
+      selectedSuggestions = [],
+    } = req.body;
+
+    const pricing = calculateFare(distanceKm, etaMin, foodStops);
+
+    const ride = await CabRide.create({
+      userId: req.user.id,
+      pickup,
+      drop,
+      distanceKm,
+      etaMin,
+      foodStops,
+      pricing,
+      selectedSuggestions,
+      status: "confirmed",
+      confirmedAt: new Date(),
+    });
+
+    // 🔥 SEND NOTIFICATION
+    const user = await User.findById(req.user.id);
+    if (user && user.fcmToken) {
+      await sendNotification(
+        user.fcmToken,
+        "Ride Confirmed!",
+        `Your ride to ${drop.label} has been confirmed. Searching for drivers...`,
+        {
+          type: "ride_confirmed",
+          rideId: ride._id.toString(),
+        }
+      );
+    }
+
+    return res.json({ success: true, ride });
+  } catch (err) {
+    console.error("Create Ride Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create ride",
+    });
+  }
+});
+
+/* ---------------------------------------------------
+   UPDATE RIDE STATUS - Add notifications
+---------------------------------------------------- */
+router.patch("/update-status", authMiddleware, async (req, res) => {
+  try {
+    const { rideId, status } = req.body;
+
+    const validStatuses = [
+      "confirmed",
+      "assigned",
+      "arriving",
+      "atPickup",
+      "started",
+      "completed",
+    ];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    const ride = await CabRide.findOne({
+      _id: rideId,
+      userId: req.user.id,
+    });
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: "Ride not found",
+      });
+    }
+
+    if (ride.status === "cancelled" || ride.status === "paid") {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot update status of cancelled/paid ride",
+      });
+    }
+
+    ride.status = status;
+
+    if (status === "started" && !ride.startedAt) {
+      ride.startedAt = new Date();
+    }
+
+    if (status === "completed" && !ride.completedAt) {
+      ride.completedAt = new Date();
+    }
+
+    await ride.save();
+
+    // 🔥 SEND NOTIFICATIONS BASED ON STATUS
+    const user = await User.findById(req.user.id);
+    if (user && user.fcmToken) {
+      let title = "";
+      let body = "";
+
+      switch (status) {
+        case "assigned":
+          title = "Driver Assigned!";
+          body = `${ride.driver?.name || "Your driver"} is on the way to pickup`;
+          break;
+        case "arriving":
+          title = "Driver Arriving";
+          body = "Your driver is arriving at the pickup location";
+          break;
+        case "atPickup":
+          title = "Driver at Pickup";
+          body = "Your driver has reached the pickup location";
+          break;
+        case "started":
+          title = "Trip Started!";
+          body = "Your trip has started. Enjoy the ride!";
+          break;
+        case "completed":
+          title = "Trip Completed";
+          body = "You've reached your destination. Please complete payment.";
+          break;
+      }
+
+      if (title) {
+        await sendNotification(user.fcmToken, title, body, {
+          type: `ride_${status}`,
+          rideId: ride._id.toString(),
+        });
+      }
+    }
+
+    return res.json({ success: true, ride });
+  } catch (err) {
+    console.error("Update Status Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update ride status",
+    });
+  }
+});
 /* ---------------------------------------------------
    🔥 PRICING LOGIC (Backend Authoritative)
 ---------------------------------------------------- */

@@ -1,337 +1,348 @@
-// routes/adminRoutes.js
-const express = require('express');
+// routes/admin.js
+const express = require("express");
+const Driver = require("../models/Driver");
+const CabRide = require("../models/CabRide");
+const User = require("../models/User");
+const authMiddleware = require("../middleware/auth");
+const bcrypt = require("bcryptjs");
+
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 
-const Driver = require('../models/Driver');
-const User = require('../models/User');
-const CabRide = require('../models/CabRide'); // ✅ CabRide model
-
-// ===== ADMIN LOGIN =====
-router.post('/login', async (req, res) => {
+/* ===================================
+   ADMIN AUTH MIDDLEWARE
+   (Simple check - enhance with admin role later)
+=================================== */
+const adminAuth = async (req, res, next) => {
   try {
-    const { username, password } = req.body;
-
-    // Hardcoded admin credentials
-    const ADMIN_USERNAME = 'harsh';
-    const ADMIN_PASSWORD = 'daddy';
-
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-      const token = jwt.sign(
-        { role: 'admin', username },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      return res.json({
-        success: true,
-        token,
-        message: 'Admin login successful',
-      });
+    // For now, any authenticated user can access admin
+    // TODO: Add role-based access control
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
     }
-
-    return res.status(401).json({ error: 'Invalid credentials' });
-  } catch (error) {
-    console.error('Admin login error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== MIDDLEWARE: ADMIN AUTH =====
-const adminAuth = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    if (decoded.role !== 'admin') {
-      return res.status(403).json({ error: 'Not an admin' });
-    }
-
-    req.admin = decoded;
     next();
-  } catch (error) {
-    console.error('Admin auth error:', error);
-    res.status(401).json({ error: 'Invalid or expired token' });
+  } catch (err) {
+    return res.status(403).json({ success: false, message: "Unauthorized" });
   }
 };
 
-// ===== VERIFY TOKEN =====
-router.get('/verify', adminAuth, (req, res) => {
-  res.json({ success: true, admin: req.admin });
-});
-
-// ===== DASHBOARD STATS =====
-router.get('/stats', adminAuth, async (req, res) => {
+/* ===================================
+   DASHBOARD STATS
+=================================== */
+router.get("/stats", authMiddleware, adminAuth, async (req, res) => {
   try {
-    const totalUsers = await User.countDocuments();
     const totalDrivers = await Driver.countDocuments();
-    const onlineDrivers = await Driver.countDocuments({ online: true });
-
+    const onlineDrivers = await Driver.countDocuments({ isOnline: true });
+    const totalUsers = await User.countDocuments();
     const totalRides = await CabRide.countDocuments();
-
-    const liveStatuses = [
-      'pending', 'confirmed', 'assigned', 'arriving',
-      'atPickup', 'started'
-    ];
-
-    const liveRides = await CabRide.countDocuments({
-      status: { $in: liveStatuses }
+    const completedRides = await CabRide.countDocuments({ status: "paid" });
+    const activeRides = await CabRide.countDocuments({
+      status: { $in: ["confirmed", "assigned", "arriving", "atPickup", "started"] },
     });
 
-    const completedRides = await CabRide.find({ status: 'completed' });
+    // Calculate total earnings
+    const earnings = await CabRide.aggregate([
+      { $match: { isPaid: true } },
+      { $group: { _id: null, total: { $sum: "$pricing.totalFare" } } },
+    ]);
 
-    const totalRevenue = completedRides.reduce((sum, ride) => {
-      const fare = ride.pricing?.totalFare || 0;
-      return sum + fare;
-    }, 0);
+    const totalEarnings = earnings.length > 0 ? earnings[0].total : 0;
 
-    res.json({
-      totalUsers,
-      totalDrivers,
-      onlineDrivers,
-      totalRides,
-      liveRides,
-      totalRevenue,
+    return res.json({
+      success: true,
+      stats: {
+        totalDrivers,
+        onlineDrivers,
+        totalUsers,
+        totalRides,
+        completedRides,
+        activeRides,
+        totalEarnings,
+      },
     });
-  } catch (error) {
-    console.error('Stats error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error("Admin Stats Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// ===== DRIVER MANAGEMENT =====
+/* ===================================
+   DRIVER MANAGEMENT
+=================================== */
 
 // Get all drivers
-router.get('/drivers', adminAuth, async (req, res) => {
+router.get("/drivers", authMiddleware, adminAuth, async (req, res) => {
   try {
-    const drivers = await Driver.find().sort({ createdAt: -1 });
-    res.json({ drivers });
-  } catch (error) {
-    console.error('Get drivers error:', error);
-    res.status(500).json({ error: error.message });
+    const { status, online, page = 1, limit = 20 } = req.query;
+    
+    const filter = {};
+    if (status) filter.documentStatus = status;
+    if (online !== undefined) filter.isOnline = online === "true";
+
+    const drivers = await Driver.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .select("-password");
+
+    const total = await Driver.countDocuments(filter);
+
+    return res.json({
+      success: true,
+      drivers,
+      pagination: {
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error("Get Drivers Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
 // Add new driver
-router.post('/drivers', adminAuth, async (req, res) => {
+router.post("/drivers", authMiddleware, adminAuth, async (req, res) => {
   try {
-    const { name, phone, vehicleNumber, vehicleType, licenseNumber } = req.body;
-
-    const driver = new Driver({
+    const {
       name,
+      email,
       phone,
+      password,
       vehicleNumber,
-      vehicleType: vehicleType || 'sedan',
+      vehicleModel,
+      vehicleType,
       licenseNumber,
-      approved: true,
-      online: false,
-      rating: 5.0,
-      totalRides: 0,
+      licenseExpiry,
+    } = req.body;
+
+    // Check if driver exists
+    const exists = await Driver.findOne({ $or: [{ email }, { phone }] });
+    if (exists) {
+      return res.json({
+        success: false,
+        message: "Driver with this email or phone already exists",
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const driver = await Driver.create({
+      name,
+      email,
+      phone,
+      password: hashedPassword,
+      vehicleNumber,
+      vehicleModel,
+      vehicleType: vehicleType || "sedan",
+      licenseNumber,
+      licenseExpiry,
+      documentStatus: "pending",
     });
 
-    await driver.save();
-    res.json({ driver, message: 'Driver added successfully' });
-  } catch (error) {
-    console.error('Add driver error:', error);
-    res.status(500).json({ error: error.message });
+    return res.json({
+      success: true,
+      message: "Driver added successfully",
+      driver: {
+        id: driver._id,
+        name: driver.name,
+        email: driver.email,
+        phone: driver.phone,
+      },
+    });
+  } catch (err) {
+    console.error("Add Driver Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// Update driver
-router.put('/drivers/:id', adminAuth, async (req, res) => {
+// Update driver status
+router.patch("/drivers/:id/status", authMiddleware, adminAuth, async (req, res) => {
   try {
-    const driver = await Driver.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
-    );
-    res.json({ driver, message: 'Driver updated' });
-  } catch (error) {
-    console.error('Update driver error:', error);
-    res.status(500).json({ error: error.message });
+    const { id } = req.params;
+    const { documentStatus, isBlocked } = req.body;
+
+    const update = {};
+    if (documentStatus) update.documentStatus = documentStatus;
+    if (isBlocked !== undefined) update.isBlocked = isBlocked;
+
+    const driver = await Driver.findByIdAndUpdate(id, update, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
+
+    if (!driver) {
+      return res.status(404).json({ success: false, message: "Driver not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Driver status updated",
+      driver,
+    });
+  } catch (err) {
+    console.error("Update Driver Status Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
 // Delete driver
-router.delete('/drivers/:id', adminAuth, async (req, res) => {
+router.delete("/drivers/:id", authMiddleware, adminAuth, async (req, res) => {
   try {
-    await Driver.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Driver deleted' });
-  } catch (error) {
-    console.error('Delete driver error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
+    const { id } = req.params;
 
-// Approve / reject driver
-router.patch('/drivers/:id/approve', adminAuth, async (req, res) => {
-  try {
-    const { approved } = req.body;
-    const driver = await Driver.findByIdAndUpdate(
-      req.params.id,
-      { approved },
-      { new: true }
-    );
-    res.json({
-      driver,
-      message: `Driver ${approved ? 'approved' : 'rejected'}`,
+    const driver = await Driver.findByIdAndDelete(id);
+
+    if (!driver) {
+      return res.status(404).json({ success: false, message: "Driver not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: "Driver deleted successfully",
     });
-  } catch (error) {
-    console.error('Approve driver error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error("Delete Driver Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// ===== LIVE RIDES =====
-router.get('/rides/live', adminAuth, async (req, res) => {
+/* ===================================
+   RIDE MANAGEMENT
+=================================== */
+
+// Get all rides
+router.get("/rides", authMiddleware, adminAuth, async (req, res) => {
   try {
-    const liveStatuses = [
-      'pending', 'confirmed', 'assigned', 'arriving',
-      'atPickup', 'started'
-    ];
+    const { status, page = 1, limit = 20 } = req.query;
+    
+    const filter = {};
+    if (status) filter.status = status;
 
-    const liveRides = await CabRide.find({
-      status: { $in: liveStatuses }
-    })
-      .populate('userId', 'name phone')
-      .populate('driverId', 'name phone vehicleNumber')
-      .sort({ createdAt: -1 });
-
-    res.json({ rides: liveRides });
-  } catch (error) {
-    console.error('Live rides error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== ALL RIDES =====
-router.get('/rides', adminAuth, async (req, res) => {
-  try {
-    const { page = 1, limit = 50, status } = req.query;
-
-    const query = {};
-    if (status) query.status = status;
-
-    const numericLimit = Number(limit) || 50;
-    const numericPage = Number(page) || 1;
-
-    const rides = await CabRide.find(query)
-      .populate('userId', 'name phone')
-      .populate('driverId', 'name phone vehicleNumber')
+    const rides = await CabRide.find(filter)
+      .populate("userId", "name email phone")
+      .populate("driverId", "name phone vehicleNumber")
       .sort({ createdAt: -1 })
-      .limit(numericLimit)
-      .skip((numericPage - 1) * numericLimit);
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
 
-    const total = await CabRide.countDocuments(query);
+    const total = await CabRide.countDocuments(filter);
 
-    res.json({
+    return res.json({
+      success: true,
       rides,
-      totalPages: Math.ceil(total / numericLimit),
-      currentPage: numericPage,
+      pagination: {
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / limit),
+      },
     });
-  } catch (error) {
-    console.error('All rides error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error("Get Rides Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// ===== EARNINGS =====
-router.get('/earnings', adminAuth, async (req, res) => {
+// Manually assign driver to ride
+router.patch("/rides/:id/assign", authMiddleware, adminAuth, async (req, res) => {
   try {
-    const completedRides = await CabRide.find({ status: 'completed' });
-
-    const totalEarnings = completedRides.reduce((sum, ride) => {
-      const fare = ride.pricing?.totalFare || 0;
-      return sum + fare;
-    }, 0);
-
-    const totalRides = completedRides.length;
-    const avgFare = totalRides ? totalEarnings / totalRides : 0;
-
-    // Today's earnings
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const todayRides = completedRides.filter((r) => r.createdAt >= today);
-    const todayEarnings = todayRides.reduce((sum, ride) => {
-      const fare = ride.pricing?.totalFare || 0;
-      return sum + fare;
-    }, 0);
-
-    res.json({
-      totalEarnings,
-      totalRides,
-      avgFare,
-      todayEarnings,
-      todayRides: todayRides.length,
-    });
-  } catch (error) {
-    console.error('Earnings error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== PAYMENT HISTORY (from CabRide) =====
-router.get('/payments', adminAuth, async (req, res) => {
-  try {
-    const rides = await CabRide.find({ isPaid: true })
-      .populate('userId', 'name phone')
-      .populate('driverId', 'name phone vehicleNumber')
-      .sort({ paidAt: -1 });
-
-    const payments = rides.map((r) => ({
-      rideId: r._id,
-      user: r.userId,
-      driver: r.driverId,
-      amount: r.pricing?.totalFare || 0,
-      paymentId: r.paymentId,
-      orderId: r.orderId,
-      paidAt: r.paidAt,
-    }));
-
-    res.json({ payments });
-  } catch (error) {
-    console.error('Payment list error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== MANUAL RIDE ASSIGN =====
-router.patch('/rides/:id/assign', adminAuth, async (req, res) => {
-  try {
+    const { id } = req.params;
     const { driverId } = req.body;
+
+    const ride = await CabRide.findById(id);
+    if (!ride) {
+      return res.status(404).json({ success: false, message: "Ride not found" });
+    }
 
     const driver = await Driver.findById(driverId);
     if (!driver) {
-      return res.status(404).json({ error: 'Driver not found' });
+      return res.status(404).json({ success: false, message: "Driver not found" });
     }
 
-    const ride = await CabRide.findByIdAndUpdate(
-      req.params.id,
-      {
-        driverId,
-        status: 'assigned',
-        acceptedAt: new Date(),
+    await ride.assignDriver({
+      _id: driver._id,
+      name: driver.name,
+      phone: driver.phone,
+      vehicleNumber: driver.vehicleNumber,
+      rating: driver.rating,
+    });
+
+    return res.json({
+      success: true,
+      message: "Driver assigned successfully",
+      ride,
+    });
+  } catch (err) {
+    console.error("Assign Driver Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+/* ===================================
+   PAYMENT MANAGEMENT
+=================================== */
+
+// Get all payments
+router.get("/payments", authMiddleware, adminAuth, async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+
+    const payments = await CabRide.find({ isPaid: true })
+      .populate("userId", "name email phone")
+      .populate("driverId", "name phone")
+      .sort({ paidAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .select("userId driverId pricing paymentId orderId paidAt");
+
+    const total = await CabRide.countDocuments({ isPaid: true });
+
+    return res.json({
+      success: true,
+      payments,
+      pagination: {
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / limit),
       },
-      { new: true }
-    )
-      .populate('userId', 'name phone')
-      .populate('driverId', 'name phone vehicleNumber');
+    });
+  } catch (err) {
+    console.error("Get Payments Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
-    if (!ride) {
-      return res.status(404).json({ error: 'Ride not found' });
-    }
+/* ===================================
+   USER MANAGEMENT
+=================================== */
 
-    res.json({ ride, message: 'Driver assigned manually' });
-  } catch (error) {
-    console.error('Assign ride error:', error);
-    res.status(500).json({ error: error.message });
+// Get all users
+router.get("/users", authMiddleware, adminAuth, async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+
+    const users = await User.find()
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .select("-password");
+
+    const total = await User.countDocuments();
+
+    return res.json({
+      success: true,
+      users,
+      pagination: {
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error("Get Users Error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
