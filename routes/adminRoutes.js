@@ -13,8 +13,8 @@ router.post('/login', async (req, res) => {
     const { username, password } = req.body;
 
     // Hardcoded admin credentials
-    const ADMIN_USERNAME = 'admin';
-    const ADMIN_PASSWORD = 'admin123';
+    const ADMIN_USERNAME = 'harsh';
+    const ADMIN_PASSWORD = 'daddy';
 
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
       const token = jwt.sign(
