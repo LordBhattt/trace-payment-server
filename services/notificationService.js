@@ -1,10 +1,19 @@
 // services/notificationService.js
 const admin = require("firebase-admin");
 
-// Initialize Firebase Admin (put your service account JSON in root)
-// Download from Firebase Console > Project Settings > Service Accounts
+// Initialize Firebase Admin
 try {
-  const serviceAccount = require("../firebase-service-account.json");
+  let serviceAccount;
+  
+  // Check if running on Render (production)
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    console.log("📱 Using Firebase credentials from environment variable");
+  } else {
+    // Local development - use file
+    serviceAccount = require("../firebase-service-account.json");
+    console.log("📱 Using Firebase credentials from local file");
+  }
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -13,6 +22,7 @@ try {
   console.log("✅ Firebase Admin initialized");
 } catch (err) {
   console.warn("⚠️ Firebase Admin not initialized:", err.message);
+  console.log("Push notifications will be disabled");
 }
 
 /**
@@ -22,7 +32,13 @@ async function sendNotification(token, title, body, data = {}) {
   if (!token) {
     console.warn("No FCM token provided");
     return null;
-    }
+  }
+
+  // Check if Firebase is initialized
+  if (!admin.apps.length) {
+    console.warn("📱 [MOCK] Would send notification:", { token, title, body });
+    return null;
+  }
 
   const message = {
     token,
@@ -67,6 +83,12 @@ async function sendNotification(token, title, body, data = {}) {
 async function sendMulticastNotification(tokens, title, body, data = {}) {
   if (!tokens || tokens.length === 0) {
     console.warn("No FCM tokens provided");
+    return null;
+  }
+
+  // Check if Firebase is initialized
+  if (!admin.apps.length) {
+    console.warn("📱 [MOCK] Would send multicast notification to", tokens.length, "devices");
     return null;
   }
 
