@@ -30,9 +30,7 @@ router.get("/key", authMiddleware, (req, res) => {
 /* ---------------------------------------------------------
    CREATE ORDER
    POST /api/payment/create-order
-   
-   🔥 FIX: Accept rideId and compute amount from DB
-   This prevents client-side fare manipulation
+   (🔥 Fixed receipt length issue)
 --------------------------------------------------------- */
 router.post("/create-order", authMiddleware, async (req, res) => {
   try {
@@ -45,7 +43,7 @@ router.post("/create-order", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔥 Fetch ride from DB to get authoritative fare
+    // Fetch ride from DB for authoritative fare
     const ride = await CabRide.findOne({
       _id: rideId,
       userId: req.user.id,
@@ -65,7 +63,7 @@ router.post("/create-order", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔥 Use backend-computed fare (AUTHORITATIVE)
+    // Fare from backend only
     const amount = ride.pricing.totalFare;
 
     if (!amount || amount <= 0) {
@@ -75,10 +73,14 @@ router.post("/create-order", authMiddleware, async (req, res) => {
       });
     }
 
+    // 🔥 FIX: Razorpay receipt must be < 40 chars
+    const shortId = rideId.toString().slice(-6);
+    const timeShort = Date.now().toString().slice(-4);
+
     const options = {
-      amount: Math.round(amount * 100), // convert to paise
+      amount: Math.round(amount * 100), // paise
       currency: "INR",
-      receipt: `trace_${rideId}_${Date.now()}`,
+      receipt: `rcpt_${shortId}_${timeShort}`, // ALWAYS < 40 chars
     };
 
     const order = await razorpay.orders.create(options);
@@ -101,8 +103,6 @@ router.post("/create-order", authMiddleware, async (req, res) => {
 /* ---------------------------------------------------------
    VERIFY PAYMENT
    POST /api/payment/verify
-   
-   🔥 FIX: Idempotent + returns full ride object
 --------------------------------------------------------- */
 router.post("/verify", authMiddleware, async (req, res) => {
   try {
@@ -128,7 +128,7 @@ router.post("/verify", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔥 FIX: Idempotent check
+    // Idempotent check
     if (ride.isPaid && ride.paymentId === paymentId) {
       return res.json({
         success: true,
@@ -137,7 +137,7 @@ router.post("/verify", authMiddleware, async (req, res) => {
       });
     }
 
-    // Generate expected signature using secret
+    // Validate signature
     const expectedSig = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(orderId + "|" + paymentId)
@@ -150,7 +150,7 @@ router.post("/verify", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔥 Valid signature → update ride
+    // Update ride
     ride.paymentId = paymentId;
     ride.orderId = orderId;
     ride.signature = signature;
