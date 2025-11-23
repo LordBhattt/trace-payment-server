@@ -1,31 +1,32 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-// Add to server.js
-const userRoutes = require('./routes/user');
-
-const adminRoutes = require('./routes/admin');
 require('dotenv').config();
 
 const app = express();
 
 // Middleware
-app.use('/api/user', userRoutes);
 app.use(cors());
-app.use('/api/admin', adminRoutes);
 app.use(express.json());
 
-// Route imports
+// Route imports - ONLY ONCE EACH
 const authRoutes = require('./routes/auth');
-const rideRoutes = require('./routes/ride');
+const rideRoutes = require('./routes/cabride');
 const paymentRoutes = require('./routes/payment');
-const adminRoutes = require('./routes/adminRoutes');   // ONLY ONCE
+const adminRoutes = require('./routes/admin');    // ✅ ONLY ONCE
+const userRoutes = require('./routes/user');      // ✅ ONLY ONCE
 
-// Route mapping
+// Route mapping - ONLY ONCE EACH
 app.use('/api/auth', authRoutes);
-app.use('/api/rides', rideRoutes);
+app.use('/api/cabride', rideRoutes);
 app.use('/api/payment', paymentRoutes);
-app.use('/api/admin', adminRoutes);     // ONLY ONCE
+app.use('/api/admin', adminRoutes);     // ✅ ONLY ONCE
+app.use('/api/user', userRoutes);       // ✅ ONLY ONCE
+
+// Health check
+app.get('/', (req, res) => {
+  res.json({ message: 'TRACE Backend API is running!' });
+});
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
