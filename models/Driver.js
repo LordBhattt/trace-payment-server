@@ -1,3 +1,4 @@
+// models/Driver.js
 const mongoose = require('mongoose');
 
 const DriverSchema = new mongoose.Schema({
@@ -13,13 +14,14 @@ const DriverSchema = new mongoose.Schema({
   totalRides: { type: Number, default: 0 },
   rating: { type: Number, default: 5.0 },
 
-  // For driver location (optional)
+  // Optional live location
   location: {
     lat: Number,
-    lng: Number
+    lng: Number,
   },
 
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 
-module.exports = mongoose.model('driver', DriverSchema);
+// ✅ IMPORTANT: model name is "Driver" (matches ref in CabRide)
+module.exports = mongoose.model('Driver', DriverSchema);

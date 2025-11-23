@@ -1,10 +1,11 @@
+// routes/adminRoutes.js
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 
 const Driver = require('../models/Driver');
 const User = require('../models/User');
-const CabRide = require('../models/CabRide'); // ✅ single correct import
+const CabRide = require('../models/CabRide'); // ✅ CabRide model
 
 // ===== ADMIN LOGIN =====
 router.post('/login', async (req, res) => {
@@ -79,7 +80,9 @@ router.get('/stats', adminAuth, async (req, res) => {
       'atPickup', 'started'
     ];
 
-    const liveRides = await CabRide.countDocuments({ status: { $in: liveStatuses } });
+    const liveRides = await CabRide.countDocuments({
+      status: { $in: liveStatuses }
+    });
 
     const completedRides = await CabRide.find({ status: 'completed' });
 
@@ -143,7 +146,11 @@ router.post('/drivers', adminAuth, async (req, res) => {
 // Update driver
 router.put('/drivers/:id', adminAuth, async (req, res) => {
   try {
-    const driver = await Driver.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const driver = await Driver.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
     res.json({ driver, message: 'Driver updated' });
   } catch (error) {
     console.error('Update driver error:', error);
@@ -162,7 +169,7 @@ router.delete('/drivers/:id', adminAuth, async (req, res) => {
   }
 });
 
-// Approve driver
+// Approve / reject driver
 router.patch('/drivers/:id/approve', adminAuth, async (req, res) => {
   try {
     const { approved } = req.body;
@@ -189,7 +196,9 @@ router.get('/rides/live', adminAuth, async (req, res) => {
       'atPickup', 'started'
     ];
 
-    const liveRides = await CabRide.find({ status: { $in: liveStatuses } })
+    const liveRides = await CabRide.find({
+      status: { $in: liveStatuses }
+    })
       .populate('userId', 'name phone')
       .populate('driverId', 'name phone vehicleNumber')
       .sort({ createdAt: -1 });
@@ -209,19 +218,22 @@ router.get('/rides', adminAuth, async (req, res) => {
     const query = {};
     if (status) query.status = status;
 
+    const numericLimit = Number(limit) || 50;
+    const numericPage = Number(page) || 1;
+
     const rides = await CabRide.find(query)
       .populate('userId', 'name phone')
       .populate('driverId', 'name phone vehicleNumber')
       .sort({ createdAt: -1 })
-      .limit(Number(limit))
-      .skip((Number(page) - 1) * Number(limit));
+      .limit(numericLimit)
+      .skip((numericPage - 1) * numericLimit);
 
     const total = await CabRide.countDocuments(query);
 
     res.json({
       rides,
-      totalPages: Math.ceil(total / limit),
-      currentPage: Number(page),
+      totalPages: Math.ceil(total / numericLimit),
+      currentPage: numericPage,
     });
   } catch (error) {
     console.error('All rides error:', error);
@@ -296,7 +308,9 @@ router.patch('/rides/:id/assign', adminAuth, async (req, res) => {
     const { driverId } = req.body;
 
     const driver = await Driver.findById(driverId);
-    if (!driver) return res.status(404).json({ error: 'Driver not found' });
+    if (!driver) {
+      return res.status(404).json({ error: 'Driver not found' });
+    }
 
     const ride = await CabRide.findByIdAndUpdate(
       req.params.id,
@@ -310,7 +324,9 @@ router.patch('/rides/:id/assign', adminAuth, async (req, res) => {
       .populate('userId', 'name phone')
       .populate('driverId', 'name phone vehicleNumber');
 
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (!ride) {
+      return res.status(404).json({ error: 'Ride not found' });
+    }
 
     res.json({ ride, message: 'Driver assigned manually' });
   } catch (error) {

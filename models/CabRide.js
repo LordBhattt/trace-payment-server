@@ -3,15 +3,11 @@ const mongoose = require("mongoose");
 
 /**
  * CabRide Model - Complete & Production Ready
- * 
- * This model supports the full ride lifecycle:
- * - Ride creation with backend-computed pricing
- * - Status transitions (confirmed → assigned → arriving → atPickup → started → completed → paid)
- * - Razorpay payment tracking
- * - Cancellation rules (3-minute window, cannot cancel after started)
- * - Food stop management
- * - Driver assignment tracking
- * - Comprehensive timestamps
+ *
+ * Now supports:
+ * - Proper driverId (ref: 'Driver') for populate()
+ * - Embedded driver snapshot (name, phone, etc.) for quick reads
+ * - Full status lifecycle + payment + cancellation rules
  */
 
 const CabRideSchema = new mongoose.Schema(
@@ -21,7 +17,34 @@ const CabRideSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true, // Index for faster queries
+      index: true,
+    },
+
+    // ===== DRIVER REFERENCE (OPTION B) =====
+    driverId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Driver",
+      default: null,
+      index: true,
+    },
+
+    // Optional driver snapshot (for quick display / historical data)
+    driver: {
+      id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Driver",
+        default: null,
+      },
+      name: { type: String, default: null },
+      phone: { type: String, default: null },
+      vehicle: { type: String, default: null },
+      plate: { type: String, default: null },
+      rating: {
+        type: Number,
+        default: null,
+        min: 0,
+        max: 5,
+      },
     },
 
     // ===== LOCATION DATA =====
@@ -55,38 +78,38 @@ const CabRideSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
-      max: 5, // Global max as per business rules
+      max: 5,
     },
 
     selectedSuggestions: {
-      type: [mongoose.Schema.Types.Mixed], // Array of suggestion objects or IDs
+      type: [mongoose.Schema.Types.Mixed],
       default: [],
     },
 
     // ===== PRICING (BACKEND AUTHORITATIVE) =====
     pricing: {
-      baseFare: { 
-        type: Number, 
+      baseFare: {
+        type: Number,
         default: 0,
         min: 0,
       },
-      distanceFare: { 
-        type: Number, 
+      distanceFare: {
+        type: Number,
         default: 0,
         min: 0,
       },
-      timeFare: { 
-        type: Number, 
+      timeFare: {
+        type: Number,
         default: 0,
         min: 0,
       },
-      foodStopFare: { 
-        type: Number, 
+      foodStopFare: {
+        type: Number,
         default: 0,
         min: 0,
       },
-      totalFare: { 
-        type: Number, 
+      totalFare: {
+        type: Number,
         default: 0,
         min: 0,
         required: true,
@@ -97,23 +120,23 @@ const CabRideSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: [
-        "pending",      // Initial state (rarely used, goes straight to confirmed)
-        "confirmed",    // Ride created, looking for driver
-        "assigned",     // Driver assigned
-        "arriving",     // Driver heading to pickup
-        "atPickup",     // Driver reached pickup location
-        "started",      // Trip started (OTP verified / pickup complete)
-        "completed",    // Destination reached
-        "paid",         // Payment verified
-        "cancelled",    // Ride cancelled by user/system
+        "pending",
+        "confirmed",
+        "assigned",
+        "arriving",
+        "atPickup",
+        "started",
+        "completed",
+        "paid",
+        "cancelled",
       ],
       default: "confirmed",
       required: true,
-      index: true, // Index for status-based queries
+      index: true,
     },
 
-    // ===== CRITICAL TIMESTAMPS FOR BUSINESS LOGIC =====
-    
+    // ===== CRITICAL TIMESTAMPS =====
+
     // When ride was confirmed (used for 3-minute cancellation window)
     confirmedAt: {
       type: Date,
@@ -121,7 +144,13 @@ const CabRideSchema = new mongoose.Schema(
       required: true,
     },
 
-    // When trip actually started (prevents cancellation after this)
+    // When driver accepted / was assigned
+    acceptedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // When trip actually started
     startedAt: {
       type: Date,
       default: null,
@@ -139,26 +168,26 @@ const CabRideSchema = new mongoose.Schema(
       default: null,
     },
 
-    // When ride was cancelled (if applicable)
+    // When ride was cancelled
     cancelledAt: {
       type: Date,
       default: null,
     },
 
     // ===== PAYMENT INTEGRATION (RAZORPAY) =====
-    paymentId: { 
+    paymentId: {
       type: String,
       default: null,
-      index: true, // For payment lookup
+      index: true,
     },
 
-    orderId: { 
+    orderId: {
       type: String,
       default: null,
-      index: true, // For order lookup
+      index: true,
     },
 
-    signature: { 
+    signature: {
       type: String,
       default: null,
     },
@@ -167,38 +196,7 @@ const CabRideSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
       required: true,
-      index: true, // For filtering paid rides
-    },
-
-    // ===== DRIVER ASSIGNMENT =====
-    driver: {
-      id: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Driver",
-        default: null,
-      },
-      name: { 
-        type: String, 
-        default: null,
-      },
-      phone: { 
-        type: String, 
-        default: null,
-      },
-      vehicle: { 
-        type: String, 
-        default: null,
-      },
-      plate: { 
-        type: String, 
-        default: null,
-      },
-      rating: { 
-        type: Number, 
-        default: null,
-        min: 0,
-        max: 5,
-      },
+      index: true,
     },
 
     // ===== CANCELLATION TRACKING =====
@@ -235,7 +233,7 @@ const CabRideSchema = new mongoose.Schema(
       },
     },
 
-    // OTP for pickup verification (if implementing OTP feature)
+    // OTP for pickup verification (if you add OTP later)
     pickupOTP: {
       type: String,
       default: null,
@@ -249,20 +247,20 @@ const CabRideSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, // Automatically adds createdAt and updatedAt
-    collection: "cabrides", // Explicit collection name
+    timestamps: true,
+    collection: "cabrides",
   }
 );
 
-// ===== INDEXES FOR PERFORMANCE =====
-CabRideSchema.index({ userId: 1, createdAt: -1 }); // User ride history
-CabRideSchema.index({ status: 1, confirmedAt: -1 }); // Status-based queries
-CabRideSchema.index({ isPaid: 1, completedAt: -1 }); // Payment reports
-CabRideSchema.index({ "driver.id": 1, status: 1 }); // Driver assignments
+// ===== INDEXES =====
+CabRideSchema.index({ userId: 1, createdAt: -1 });
+CabRideSchema.index({ status: 1, confirmedAt: -1 });
+CabRideSchema.index({ isPaid: 1, completedAt: -1 });
+CabRideSchema.index({ driverId: 1, status: 1 }); // ✅ for admin / driver queries
 
-// ===== VIRTUAL FIELDS =====
+// ===== VIRTUALS =====
 
-// Check if ride can be cancelled (3-minute window + not started)
+// Can user cancel? (<= 3 minutes, and not started/completed/paid/cancelled)
 CabRideSchema.virtual("canCancel").get(function () {
   if (["started", "completed", "paid", "cancelled"].includes(this.status)) {
     return false;
@@ -272,12 +270,12 @@ CabRideSchema.virtual("canCancel").get(function () {
   return diffMin <= 3;
 });
 
-// Check if payment is pending (completed but not paid)
+// Is payment pending?
 CabRideSchema.virtual("isPaymentPending").get(function () {
   return this.status === "completed" && !this.isPaid;
 });
 
-// Total ride duration (from start to completion)
+// Ride duration in minutes
 CabRideSchema.virtual("rideDurationMin").get(function () {
   if (!this.startedAt || !this.completedAt) return null;
   return Math.round(
@@ -287,11 +285,7 @@ CabRideSchema.virtual("rideDurationMin").get(function () {
 
 // ===== INSTANCE METHODS =====
 
-/**
- * Mark ride as cancelled
- * @param {String} reason - Cancellation reason
- * @param {String} by - Who cancelled (user/driver/system)
- */
+// Cancel ride
 CabRideSchema.methods.cancel = function (reason = null, by = "user") {
   this.status = "cancelled";
   this.cancelledAt = new Date();
@@ -300,38 +294,37 @@ CabRideSchema.methods.cancel = function (reason = null, by = "user") {
   return this.save();
 };
 
-/**
- * Assign driver to ride
- * @param {Object} driverData - Driver information
- */
+// Assign driver (Option B: driverId + snapshot)
 CabRideSchema.methods.assignDriver = function (driverData) {
+  const id = driverData.id || driverData._id;
+
+  this.driverId = id;
   this.driver = {
-    id: driverData.id || driverData._id,
+    id,
     name: driverData.name,
     phone: driverData.phone,
-    vehicle: driverData.vehicle,
-    plate: driverData.plate,
+    vehicle: driverData.vehicle || driverData.vehicleNumber || null,
+    plate: driverData.plate || driverData.vehicleNumber || null,
     rating: driverData.rating,
   };
+
   this.status = "assigned";
+  this.acceptedAt = new Date();
+
   return this.save();
 };
 
-/**
- * Start the trip
- */
+// Start trip
 CabRideSchema.methods.startTrip = function () {
-  if (this.status !== "atPickup") {
-    throw new Error("Trip can only start from atPickup status");
+  if (!["assigned", "arriving", "atPickup"].includes(this.status)) {
+    throw new Error("Trip can only start after driver is at pickup");
   }
   this.status = "started";
   this.startedAt = new Date();
   return this.save();
 };
 
-/**
- * Complete the trip
- */
+// Complete trip
 CabRideSchema.methods.completeTrip = function () {
   if (this.status !== "started") {
     throw new Error("Trip can only be completed from started status");
@@ -341,12 +334,7 @@ CabRideSchema.methods.completeTrip = function () {
   return this.save();
 };
 
-/**
- * Mark payment as successful
- * @param {String} paymentId - Razorpay payment ID
- * @param {String} orderId - Razorpay order ID
- * @param {String} signature - Razorpay signature
- */
+// Mark paid
 CabRideSchema.methods.markPaid = function (paymentId, orderId, signature) {
   this.paymentId = paymentId;
   this.orderId = orderId;
@@ -359,11 +347,7 @@ CabRideSchema.methods.markPaid = function (paymentId, orderId, signature) {
 
 // ===== STATIC METHODS =====
 
-/**
- * Get active ride for a user
- * @param {String} userId - User ID
- * @returns {Promise<CabRide|null>}
- */
+// Active ride for user
 CabRideSchema.statics.getActiveRide = function (userId) {
   return this.findOne({
     userId,
@@ -371,22 +355,14 @@ CabRideSchema.statics.getActiveRide = function (userId) {
   }).sort({ confirmedAt: -1 });
 };
 
-/**
- * Get ride history for a user
- * @param {String} userId - User ID
- * @param {Number} limit - Number of rides to return
- * @returns {Promise<CabRide[]>}
- */
+// History for user
 CabRideSchema.statics.getUserHistory = function (userId, limit = 50) {
   return this.find({ userId })
     .sort({ createdAt: -1 })
     .limit(limit);
 };
 
-/**
- * Get pending payment rides
- * @returns {Promise<CabRide[]>}
- */
+// Pending payments
 CabRideSchema.statics.getPendingPayments = function () {
   return this.find({
     status: "completed",
@@ -394,11 +370,7 @@ CabRideSchema.statics.getPendingPayments = function () {
   }).sort({ completedAt: 1 });
 };
 
-/**
- * Calculate total earnings (for analytics)
- * @param {Object} filter - Optional filter criteria
- * @returns {Promise<Number>}
- */
+// Calculate earnings
 CabRideSchema.statics.calculateEarnings = async function (filter = {}) {
   const result = await this.aggregate([
     { $match: { ...filter, isPaid: true } },
@@ -413,18 +385,17 @@ CabRideSchema.statics.calculateEarnings = async function (filter = {}) {
   return result.length > 0 ? result[0].total : 0;
 };
 
-// ===== MIDDLEWARE (PRE-SAVE HOOKS) =====
+// ===== PRE-SAVE HOOKS =====
 
-// Validate pricing before save
+// Validate pricing consistency
 CabRideSchema.pre("save", function (next) {
-  if (this.pricing && this.pricing.totalFare) {
+  if (this.pricing && this.pricing.totalFare != null) {
     const calculated =
       (this.pricing.baseFare || 0) +
       (this.pricing.distanceFare || 0) +
       (this.pricing.timeFare || 0) +
       (this.pricing.foodStopFare || 0);
 
-    // Allow small rounding differences (within ₹1)
     if (Math.abs(this.pricing.totalFare - calculated) > 1) {
       return next(
         new Error("Total fare does not match sum of fare components")
@@ -434,7 +405,7 @@ CabRideSchema.pre("save", function (next) {
   next();
 });
 
-// Auto-update paidAt when isPaid changes to true
+// Auto-set paidAt
 CabRideSchema.pre("save", function (next) {
   if (this.isModified("isPaid") && this.isPaid && !this.paidAt) {
     this.paidAt = new Date();
@@ -442,5 +413,4 @@ CabRideSchema.pre("save", function (next) {
   next();
 });
 
-// ===== EXPORT MODEL =====
 module.exports = mongoose.model("CabRide", CabRideSchema);
