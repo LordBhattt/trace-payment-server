@@ -6,7 +6,7 @@ const MenuCategory = require('../models/MenuCategory');
 const FoodOrder = require('../models/FoodOrder');
 const Driver = require('../models/Driver');
 const CabRide = require('../models/CabRide');
-const authMiddleware = require('../middleware/authMiddleware');
+const authMiddleware = require('../middleware/auth');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 
