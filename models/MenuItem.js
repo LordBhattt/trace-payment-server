@@ -1,4 +1,3 @@
-// models/MenuItem.js
 const mongoose = require('mongoose');
 
 const addOnSchema = new mongoose.Schema({
@@ -19,8 +18,8 @@ const menuItemSchema = new mongoose.Schema({
   category: { type: String, required: true },
   isVeg: { type: Boolean, default: false },
   isAvailable: { type: Boolean, default: true },
-  preparationTime: { type: Number, default: 15 }, // minutes
-  tags: [{ type: String }], // e.g., ['spicy', 'popular', 'chef-special']
+  preparationTime: { type: Number, default: 15 },
+  tags: [{ type: String }],
   addOns: [addOnSchema],
   nutritionalInfo: {
     calories: Number,
@@ -34,17 +33,9 @@ const menuItemSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for faster queries
 menuItemSchema.index({ restaurantId: 1, category: 1 });
 menuItemSchema.index({ name: 'text', description: 'text' });
 
 const MenuItem = mongoose.model('MenuItem', menuItemSchema);
 
 module.exports = MenuItem;
-```
-
-## Steps:
-
-1. **Create the file** in your backend project:
-```
-   models/MenuItem.js
