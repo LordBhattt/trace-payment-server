@@ -1,41 +1,76 @@
+// models/MenuItem.js
 const mongoose = require('mongoose');
 
-const addOnSchema = new mongoose.Schema({
-  label: { type: String, required: true },
-  price: { type: Number, required: true }
-});
-
-const menuItemSchema = new mongoose.Schema({
-  restaurantId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Restaurant',
-    required: true 
+const menuItemSchema = new mongoose.Schema(
+  {
+    restaurantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Restaurant',
+      required: true,
+    },
+    categoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MenuCategory',
+      required: true,
+    },
+    category: {
+      type: String,
+      required: true,
+    },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      default: '',
+    },
+    price: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    imageUrl: {
+      type: String,
+      default: 'https://via.placeholder.com/300?text=Food',
+    },
+    isVeg: {
+      type: Boolean,
+      default: true,
+    },
+    isAvailable: {
+      type: Boolean,
+      default: true,
+    },
+    tags: {
+      type: [String],
+      default: [],
+    },
+    addOns: [
+      {
+        label: String,
+        price: Number,
+      },
+    ],
+    rating: {
+      type: Number,
+      default: 4.0,
+      min: 0,
+      max: 5,
+    },
+    ordersCount: {
+      type: Number,
+      default: 0,
+    },
   },
-  name: { type: String, required: true },
-  description: { type: String, required: true },
-  price: { type: Number, required: true },
-  imageUrl: { type: String },
-  category: { type: String, required: true },
-  isVeg: { type: Boolean, default: false },
-  isAvailable: { type: Boolean, default: true },
-  preparationTime: { type: Number, default: 15 },
-  tags: [{ type: String }],
-  addOns: [addOnSchema],
-  nutritionalInfo: {
-    calories: Number,
-    protein: Number,
-    carbs: Number,
-    fat: Number
-  },
-  rating: { type: Number, default: 0 },
-  ratingCount: { type: Number, default: 0 }
-}, {
-  timestamps: true
-});
+  {
+    timestamps: true,
+  }
+);
 
-menuItemSchema.index({ restaurantId: 1, category: 1 });
+menuItemSchema.index({ restaurantId: 1, categoryId: 1 });
+menuItemSchema.index({ tags: 1 });
 menuItemSchema.index({ name: 'text', description: 'text' });
 
-const MenuItem = mongoose.model('MenuItem', menuItemSchema);
-
-module.exports = MenuItem;
+module.exports = mongoose.model('MenuItem', menuItemSchema);

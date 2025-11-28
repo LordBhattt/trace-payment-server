@@ -1,87 +1,77 @@
+// models/Restaurant.js
 const mongoose = require('mongoose');
 
-const restaurantSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  description: {
-    type: String,
-    required: true
-  },
-  coverImageUrl: {
-    type: String,
-    required: true
-  },
-  logoImageUrl: {
-    type: String,
-    default: ''
-  },
-  location: {
-    lat: {
+const restaurantSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      default: '',
+    },
+    coverImageUrl: {
+      type: String,
+      default: 'https://via.placeholder.com/400x200?text=Restaurant',
+    },
+    logoImageUrl: {
+      type: String,
+      default: 'https://via.placeholder.com/100?text=Logo',
+    },
+    location: {
+      lat: { type: Number, required: true },
+      lon: { type: Number, required: true },
+      address: { type: String, required: true },
+    },
+    cuisines: {
+      type: [String],
+      default: [],
+    },
+    avgRating: {
       type: Number,
-      required: true
+      default: 4.0,
+      min: 0,
+      max: 5,
     },
-    lon: {
+    totalRatings: {
       type: Number,
-      required: true
+      default: 0,
     },
-    address: {
-      type: String,
-      required: true
-    }
-  },
-  cuisines: [{
-    type: String,
-    trim: true
-  }],
-  avgRating: {
-    type: Number,
-    default: 0,
-    min: 0,
-    max: 5
-  },
-  totalRatings: {
-    type: Number,
-    default: 0
-  },
-  isVegOnly: {
-    type: Boolean,
-    default: false
-  },
-  isActive: {
-    type: Boolean,
-    default: true
-  },
-  deliveryRadiusKm: {
-    type: Number,
-    default: 10,
-    min: 1
-  },
-  openingHours: {
-    open: {
-      type: String,
-      default: '09:00'
+    isVegOnly: {
+      type: Boolean,
+      default: false,
     },
-    close: {
-      type: String,
-      default: '23:00'
-    }
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    deliveryRadiusKm: {
+      type: Number,
+      default: 5,
+    },
+    openingHours: {
+      open: { type: String, default: '09:00' },
+      close: { type: String, default: '23:00' },
+    },
+    preparationTimeMin: {
+      type: Number,
+      default: 30,
+    },
+    discount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
   },
-  offers: {
-    type: String,
-    default: ''
-  },
-  preparationTimeMinutes: {
-    type: Number,
-    default: 30
+  {
+    timestamps: true,
   }
-}, {
-  timestamps: true
-});
+);
 
-// Index for geospatial queries
+// Index for location-based queries
 restaurantSchema.index({ 'location.lat': 1, 'location.lon': 1 });
 restaurantSchema.index({ cuisines: 1 });
 restaurantSchema.index({ isActive: 1 });
