@@ -123,7 +123,10 @@ router.get('/restaurants', async (req, res) => {
       restaurants.sort((a, b) => a.distance - b.distance);
     }
 
-    return res.json({ success: true, restaurants });
+    // NOTE:
+    // Your Flutter FoodApiService currently expects a *list* here.
+    // So we only return the array.
+    return res.json(restaurants);
   } catch (err) {
     console.error('Get Restaurants Error:', err);
     return res.status(500).json({
@@ -185,7 +188,7 @@ router.get('/restaurants/:id', async (req, res) => {
   }
 });
 
-// GET /api/food/items - Search menu items globally
+// GET /api/food/items - Search menu items globally (basic)
 router.get('/items', async (req, res) => {
   try {
     const { keyword, tag } = req.query;
@@ -213,6 +216,14 @@ router.get('/items', async (req, res) => {
       message: 'Failed to search items',
     });
   }
+});
+
+// Alias to match Flutter path /items/search
+router.get('/items/search', async (req, res) => {
+  return router.handle(
+    { ...req, url: '/items', originalUrl: '/items' },
+    res
+  );
 });
 
 /* ====================================
@@ -262,11 +273,13 @@ router.post('/orders/price-preview', authMiddleware, async (req, res) => {
     // Calculate pricing
     const pricing = calculateFoodPricing(itemsTotal, distance, deliveryMode);
 
+    const eta = Math.round(restaurant.preparationTimeMin + distance * 3); // 3 min per km
+
     return res.json({
       success: true,
       pricing,
       distance: Math.round(distance * 10) / 10,
-      eta: Math.round(restaurant.preparationTimeMin + distance * 3), // 3 min per km
+      eta,
     });
   } catch (err) {
     console.error('Price Preview Error:', err);
@@ -288,7 +301,11 @@ router.post('/orders', authMiddleware, async (req, res) => {
       deliveryAddress,
       deliveryMode,
       linkedRideId,
+      amounts: clientAmounts,
     } = req.body;
+
+    const clientPaymentMode =
+      clientAmounts && clientAmounts.paymentMode === 'cod' ? 'cod' : 'online';
 
     // Calculate items total and prepare items array
     let itemsTotal = 0;
@@ -349,18 +366,24 @@ router.post('/orders', authMiddleware, async (req, res) => {
       });
     }
 
-    // Calculate pricing
+    // Calculate pricing on backend (ignore client money numbers)
     const amounts = calculateFoodPricing(itemsTotal, distance, deliveryMode);
 
     // Generate OTPs
     const otpPickup = generateOTP();
     const otpDrop = generateOTP();
 
+    // ETA snapshot
+    const etaMinutes = Math.round(
+      restaurant.preparationTimeMin + distance * 3
+    );
+
     // Create order
     const order = await FoodOrder.create({
       userId: req.user.id,
       linkedRideId: linkedRideId || null,
       deliveryMode,
+      paymentMode: clientPaymentMode,
       restaurantId,
       items: orderItems,
       amounts,
@@ -371,7 +394,9 @@ router.post('/orders', authMiddleware, async (req, res) => {
       },
       otpPickup,
       otpDrop,
-      status: 'placed',
+      status: clientPaymentMode === 'cod' ? 'placed' : 'placed',
+      placedAt: new Date(),
+      etaMinutes,
     });
 
     return res.json({ success: true, order });
@@ -389,113 +414,127 @@ router.post('/orders', authMiddleware, async (req, res) => {
 ==================================== */
 
 // POST /api/food/orders/:id/create-razorpay-order
-router.post('/orders/:id/create-razorpay-order', authMiddleware, async (req, res) => {
-  try {
-    const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-    });
-
-    const order = await FoodOrder.findOne({
-      _id: req.params.id,
-      userId: req.user.id,
-    });
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found',
+router.post(
+  '/orders/:id/create-razorpay-order',
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const razorpay = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
       });
-    }
 
-    const amount = order.amounts.finalPayableAmount;
-
-    // Create Razorpay order
-    const razorpayOrder = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // Convert to paise
-      currency: 'INR',
-      receipt: `food_${order._id.toString().slice(-8)}_${Date.now().toString(36).slice(-6)}`,
-    });
-
-    // Save Razorpay order ID
-    order.razorpayOrderId = razorpayOrder.id;
-    await order.save();
-
-    return res.json({
-      success: true,
-      razorpayOrderId: razorpayOrder.id,
-      amount,
-    });
-  } catch (err) {
-    console.error('Create Razorpay Order Error:', err);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to create Razorpay order',
-    });
-  }
-});
-
-// POST /api/food/orders/:id/verify-payment
-router.post('/orders/:id/verify-payment', authMiddleware, async (req, res) => {
-  try {
-    const { razorpayPaymentId, razorpaySignature } = req.body;
-
-    const order = await FoodOrder.findOne({
-      _id: req.params.id,
-      userId: req.user.id,
-    });
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found',
+      const order = await FoodOrder.findOne({
+        _id: req.params.id,
+        userId: req.user.id,
       });
-    }
 
-    // Already paid (idempotent)
-    if (order.isPaid && order.razorpayPaymentId === razorpayPaymentId) {
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          message: 'Order not found',
+        });
+      }
+
+      const amount = order.amounts.finalPayableAmount;
+
+      // Create Razorpay order
+      const razorpayOrder = await razorpay.orders.create({
+        amount: Math.round(amount * 100), // Convert to paise
+        currency: 'INR',
+        receipt: `food_${order._id
+          .toString()
+          .slice(-8)}_${Date.now().toString(36).slice(-6)}`,
+      });
+
+      // Save Razorpay order ID
+      order.razorpayOrderId = razorpayOrder.id;
+      await order.save();
+
       return res.json({
         success: true,
-        message: 'Payment already verified',
+        razorpayOrderId: razorpayOrder.id,
+        amount,
+      });
+    } catch (err) {
+      console.error('Create Razorpay Order Error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create Razorpay order',
+      });
+    }
+  }
+);
+
+// POST /api/food/orders/:id/verify-payment
+router.post(
+  '/orders/:id/verify-payment',
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { razorpayPaymentId, razorpaySignature } = req.body;
+
+      const order = await FoodOrder.findOne({
+        _id: req.params.id,
+        userId: req.user.id,
+      });
+
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          message: 'Order not found',
+        });
+      }
+
+      // Already paid (idempotent)
+      if (order.isPaid && order.razorpayPaymentId === razorpayPaymentId) {
+        return res.json({
+          success: true,
+          message: 'Payment already verified',
+          order,
+        });
+      }
+
+      // Verify signature
+      const expectedSig = crypto
+        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+        .update(order.razorpayOrderId + '|' + razorpayPaymentId)
+        .digest('hex');
+
+      if (expectedSig !== razorpaySignature) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payment signature',
+        });
+      }
+
+      // Update order
+      order.razorpayPaymentId = razorpayPaymentId;
+      order.razorpaySignature = razorpaySignature;
+      order.isPaid = true;
+      order.status = 'accepted'; // Move to accepted after payment
+      order.acceptedAt = new Date();
+
+      await order.save();
+
+      return res.json({
+        success: true,
+        message: 'Payment verified successfully',
         order,
       });
-    }
-
-    // Verify signature
-    const expectedSig = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(order.razorpayOrderId + '|' + razorpayPaymentId)
-      .digest('hex');
-
-    if (expectedSig !== razorpaySignature) {
-      return res.status(400).json({
+    } catch (err) {
+      console.error('Verify Payment Error:', err);
+      return res.status(500).json({
         success: false,
-        message: 'Invalid payment signature',
+        message: 'Payment verification failed',
       });
     }
-
-    // Update order
-    order.razorpayPaymentId = razorpayPaymentId;
-    order.razorpaySignature = razorpaySignature;
-    order.isPaid = true;
-    order.status = 'accepted'; // Move to accepted after payment
-    order.acceptedAt = new Date();
-
-    await order.save();
-
-    return res.json({
-      success: true,
-      message: 'Payment verified successfully',
-      order,
-    });
-  } catch (err) {
-    console.error('Verify Payment Error:', err);
-    return res.status(500).json({
-      success: false,
-      message: 'Payment verification failed',
-    });
   }
-});
+);
+
+/* ====================================
+   ORDER READ / HISTORY / CANCEL
+==================================== */
 
 // GET /api/food/orders/:id - Get single order
 router.get('/orders/:id', authMiddleware, async (req, res) => {
@@ -568,14 +607,21 @@ router.post('/orders/:id/cancel', authMiddleware, async (req, res) => {
     }
 
     // Check if in preparing or later stage
-    const preparingStages = ['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'];
-    
+    const preparingStages = [
+      'preparing',
+      'ready_for_pickup',
+      'picked_up',
+      'on_the_way',
+    ];
+
     if (preparingStages.includes(order.status)) {
       // Customer still pays, but order becomes resellable
       order.originalCustomerPaysFull = true;
       order.isResellable = true;
       order.resellStatus = 'listed';
-      order.resellPrice = Math.round(order.amounts.finalPayableAmount * 0.5);
+      order.resellPrice = Math.round(
+        order.amounts.finalPayableAmount * 0.5
+      );
       order.resellListedAt = new Date();
     }
 
@@ -740,92 +786,99 @@ router.post('/resell/:orderId/claim', authMiddleware, async (req, res) => {
 });
 
 // POST /api/food/resell/:orderId/verify-payment
-router.post('/resell/:orderId/verify-payment', authMiddleware, async (req, res) => {
-  try {
-    const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-    });
-
-    const { razorpayPaymentId, razorpayOrderId, razorpaySignature } = req.body;
-
-    const order = await FoodOrder.findById(req.params.orderId);
-
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found',
+router.post(
+  '/resell/:orderId/verify-payment',
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const razorpay = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
       });
-    }
 
-    // Check if buyer is the one who claimed it
-    if (order.resellBuyerId.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized',
-      });
-    }
+      const { razorpayPaymentId, razorpayOrderId, razorpaySignature } =
+        req.body;
 
-    // Create Razorpay order for resale if not exists
-    let razorpayResaleOrderId = razorpayOrderId;
-    
-    if (!razorpayResaleOrderId) {
-      const razorpayOrder = await razorpay.orders.create({
-        amount: Math.round(order.resellPrice * 100),
-        currency: 'INR',
-        receipt: `resale_${order._id.toString().slice(-8)}_${Date.now().toString(36).slice(-6)}`,
-      });
-      razorpayResaleOrderId = razorpayOrder.id;
-    }
+      const order = await FoodOrder.findById(req.params.orderId);
 
-    // Verify signature
-    const expectedSig = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(razorpayResaleOrderId + '|' + razorpayPaymentId)
-      .digest('hex');
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          message: 'Order not found',
+        });
+      }
 
-    if (expectedSig !== razorpaySignature) {
-      // Payment failed - release order back to pool
-      order.resellStatus = 'listed';
-      order.resellBuyerId = null;
-      order.resellClaimedAt = null;
+      // Check if buyer is the one who claimed it
+      if (order.resellBuyerId.toString() !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      // Create Razorpay order for resale if not exists
+      let razorpayResaleOrderId = razorpayOrderId;
+
+      if (!razorpayResaleOrderId) {
+        const razorpayOrder = await razorpay.orders.create({
+          amount: Math.round(order.resellPrice * 100),
+          currency: 'INR',
+          receipt: `resale_${order._id
+            .toString()
+            .slice(-8)}_${Date.now().toString(36).slice(-6)}`,
+        });
+        razorpayResaleOrderId = razorpayOrder.id;
+      }
+
+      // Verify signature
+      const expectedSig = crypto
+        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+        .update(razorpayResaleOrderId + '|' + razorpayPaymentId)
+        .digest('hex');
+
+      if (expectedSig !== razorpaySignature) {
+        // Payment failed - release order back to pool
+        order.resellStatus = 'listed';
+        order.resellBuyerId = null;
+        order.resellClaimedAt = null;
+        await order.save();
+
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payment signature',
+        });
+      }
+
+      // Payment successful - finalize resale
+      order.resellStatus = 'sold';
+      order.isPaid = true;
+      order.status = 'accepted'; // Move to accepted, will be prepared and delivered
+      order.acceptedAt = new Date();
+
+      // Store resale payment info separately
+      order.resalePaymentInfo = {
+        razorpayPaymentId,
+        razorpayOrderId: razorpayResaleOrderId,
+        razorpaySignature,
+        paidAt: new Date(),
+      };
+
       await order.save();
 
-      return res.status(400).json({
+      return res.json({
+        success: true,
+        message: 'Resale payment verified successfully',
+        order,
+      });
+    } catch (err) {
+      console.error('Verify Resale Payment Error:', err);
+      return res.status(500).json({
         success: false,
-        message: 'Invalid payment signature',
+        message: 'Payment verification failed',
       });
     }
-
-    // Payment successful - finalize resale
-    order.resellStatus = 'sold';
-    order.isPaid = true;
-    order.status = 'accepted'; // Move to accepted, will be prepared and delivered
-    order.acceptedAt = new Date();
-
-    // Store resale payment info separately
-    order.resalePaymentInfo = {
-      razorpayPaymentId,
-      razorpayOrderId: razorpayResaleOrderId,
-      razorpaySignature,
-      paidAt: new Date(),
-    };
-
-    await order.save();
-
-    return res.json({
-      success: true,
-      message: 'Resale payment verified successfully',
-      order,
-    });
-  } catch (err) {
-    console.error('Verify Resale Payment Error:', err);
-    return res.status(500).json({
-      success: false,
-      message: 'Payment verification failed',
-    });
   }
-});
+);
 
 // POST /api/food/resell/expire-pending (internal endpoint)
 router.post('/resell/expire-pending', async (req, res) => {

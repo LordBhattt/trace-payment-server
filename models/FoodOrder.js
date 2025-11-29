@@ -8,21 +8,35 @@ const foodOrderSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+
+    // If this order is linked to a cab ride (for detour mode)
     linkedRideId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'CabRide',
       default: null,
     },
+
+    // Delivery mode
     deliveryMode: {
       type: String,
       enum: ['detour_cab', 'dedicated_delivery'],
       required: true,
     },
+
+    // NEW: How user paid / will pay
+    paymentMode: {
+      type: String,
+      enum: ['online', 'cod'],
+      default: 'online',
+    },
+
     restaurantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Restaurant',
       required: true,
     },
+
+    // Line items
     items: [
       {
         menuItemId: {
@@ -41,6 +55,8 @@ const foodOrderSchema = new mongoose.Schema(
         itemTotal: Number,
       },
     ],
+
+    // Amount breakdown – must match frontend’s pricePreview usage
     amounts: {
       itemsTotal: { type: Number, required: true },
       platformFee: { type: Number, default: 5 },
@@ -50,11 +66,15 @@ const foodOrderSchema = new mongoose.Schema(
       gstAmount: { type: Number, default: 0 },
       finalPayableAmount: { type: Number, required: true },
     },
+
+    // Where the food is to be delivered
     locationDelivery: {
       lat: { type: Number, required: true },
       lon: { type: Number, required: true },
       address: { type: String, required: true },
     },
+
+    // High-level status
     status: {
       type: String,
       enum: [
@@ -69,11 +89,15 @@ const foodOrderSchema = new mongoose.Schema(
       ],
       default: 'placed',
     },
+
+    // Assigned driver / rider (if any)
     assignedDriverId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       default: null,
     },
+
+    // OTPs for pickup & drop
     otpPickup: {
       type: String,
       default: null,
@@ -82,6 +106,8 @@ const foodOrderSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+
+    // Simple flags
     isCancelled: {
       type: Boolean,
       default: false,
@@ -90,11 +116,14 @@ const foodOrderSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+
+    // For cancelled orders where original customer still pays full
     originalCustomerPaysFull: {
       type: Boolean,
       default: false,
     },
-    // Resale fields
+
+    // Resale (50% off) logic
     isResellable: {
       type: Boolean,
       default: false,
@@ -113,11 +142,13 @@ const foodOrderSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+
     // Payment fields (original customer)
     razorpayOrderId: { type: String, default: null },
     razorpayPaymentId: { type: String, default: null },
     razorpaySignature: { type: String, default: null },
     isPaid: { type: Boolean, default: false },
+
     // Resale payment tracking (separate from original payment)
     resalePaymentInfo: {
       razorpayPaymentId: { type: String, default: null },
@@ -125,7 +156,14 @@ const foodOrderSchema = new mongoose.Schema(
       razorpaySignature: { type: String, default: null },
       paidAt: { type: Date, default: null },
     },
-    // Timestamps
+
+    // ETA for delivery (in minutes, snapshot at creation)
+    etaMinutes: {
+      type: Number,
+      default: null,
+    },
+
+    // Timeline stamps (for tracking screen / stepper)
     placedAt: { type: Date, default: Date.now },
     acceptedAt: { type: Date, default: null },
     preparingAt: { type: Date, default: null },

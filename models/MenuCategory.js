@@ -1,35 +1,44 @@
+// models/MenuCategory.js
 const mongoose = require('mongoose');
 
-const menuCategorySchema = new mongoose.Schema({
-  restaurantId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Restaurant',
-    required: true 
+const menuCategorySchema = new mongoose.Schema(
+  {
+    restaurantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Restaurant',
+      required: true,
+    },
+    name: {
+      type: String,
+      required: true,
+    },
+    description: {
+      type: String,
+    },
+
+    // Controls ordering in the menu (0,1,2,...)
+    displayOrder: {
+      type: Number,
+      default: 0,
+    },
+
+    isAvailable: {
+      type: Boolean,
+      default: true,
+    },
+
+    // Optional: time-based availability (eg. breakfast)
+    availableFrom: {
+      type: String, // "09:00"
+    },
+    availableTo: {
+      type: String, // "12:00"
+    },
   },
-  name: { 
-    type: String, 
-    required: true 
-  },
-  description: { 
-    type: String 
-  },
-  displayOrder: { 
-    type: Number, 
-    default: 0 
-  },
-  isAvailable: { 
-    type: Boolean, 
-    default: true 
-  },
-  availableFrom: { 
-    type: String 
-  },
-  availableTo: { 
-    type: String 
+  {
+    timestamps: true,
   }
-}, {
-  timestamps: true
-});
+);
 
 menuCategorySchema.index({ restaurantId: 1, displayOrder: 1 });
 
