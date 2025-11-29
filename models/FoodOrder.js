@@ -101,7 +101,7 @@ const foodOrderSchema = new mongoose.Schema(
     },
     resellStatus: {
       type: String,
-      enum: ['none', 'listed', 'claimed', 'expired'],
+      enum: ['none', 'listed', 'claimed', 'expired', 'sold'],
       default: 'none',
     },
     resellPrice: {
@@ -113,11 +113,18 @@ const foodOrderSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
-    // Payment fields
+    // Payment fields (original customer)
     razorpayOrderId: { type: String, default: null },
     razorpayPaymentId: { type: String, default: null },
     razorpaySignature: { type: String, default: null },
     isPaid: { type: Boolean, default: false },
+    // Resale payment tracking (separate from original payment)
+    resalePaymentInfo: {
+      razorpayPaymentId: { type: String, default: null },
+      razorpayOrderId: { type: String, default: null },
+      razorpaySignature: { type: String, default: null },
+      paidAt: { type: Date, default: null },
+    },
     // Timestamps
     placedAt: { type: Date, default: Date.now },
     acceptedAt: { type: Date, default: null },
@@ -133,9 +140,11 @@ const foodOrderSchema = new mongoose.Schema(
   }
 );
 
+// Indexes for performance
 foodOrderSchema.index({ userId: 1, status: 1 });
 foodOrderSchema.index({ restaurantId: 1, status: 1 });
 foodOrderSchema.index({ assignedDriverId: 1, status: 1 });
 foodOrderSchema.index({ isResellable: 1, resellStatus: 1 });
+foodOrderSchema.index({ resellListedAt: 1 });
 
 module.exports = mongoose.model('FoodOrder', foodOrderSchema);

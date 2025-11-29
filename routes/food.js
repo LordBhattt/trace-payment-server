@@ -6,6 +6,8 @@ const Restaurant = require('../models/Restaurant');
 const MenuItem = require('../models/MenuItem');
 const MenuCategory = require('../models/MenuCategory');
 const FoodOrder = require('../models/FoodOrder');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
 
 /* ====================================
    HELPER FUNCTIONS
@@ -382,6 +384,119 @@ router.post('/orders', authMiddleware, async (req, res) => {
   }
 });
 
+/* ====================================
+   PAYMENT INTEGRATION
+==================================== */
+
+// POST /api/food/orders/:id/create-razorpay-order
+router.post('/orders/:id/create-razorpay-order', authMiddleware, async (req, res) => {
+  try {
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+
+    const order = await FoodOrder.findOne({
+      _id: req.params.id,
+      userId: req.user.id,
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    const amount = order.amounts.finalPayableAmount;
+
+    // Create Razorpay order
+    const razorpayOrder = await razorpay.orders.create({
+      amount: Math.round(amount * 100), // Convert to paise
+      currency: 'INR',
+      receipt: `food_${order._id.toString().slice(-8)}_${Date.now().toString(36).slice(-6)}`,
+    });
+
+    // Save Razorpay order ID
+    order.razorpayOrderId = razorpayOrder.id;
+    await order.save();
+
+    return res.json({
+      success: true,
+      razorpayOrderId: razorpayOrder.id,
+      amount,
+    });
+  } catch (err) {
+    console.error('Create Razorpay Order Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create Razorpay order',
+    });
+  }
+});
+
+// POST /api/food/orders/:id/verify-payment
+router.post('/orders/:id/verify-payment', authMiddleware, async (req, res) => {
+  try {
+    const { razorpayPaymentId, razorpaySignature } = req.body;
+
+    const order = await FoodOrder.findOne({
+      _id: req.params.id,
+      userId: req.user.id,
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    // Already paid (idempotent)
+    if (order.isPaid && order.razorpayPaymentId === razorpayPaymentId) {
+      return res.json({
+        success: true,
+        message: 'Payment already verified',
+        order,
+      });
+    }
+
+    // Verify signature
+    const expectedSig = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(order.razorpayOrderId + '|' + razorpayPaymentId)
+      .digest('hex');
+
+    if (expectedSig !== razorpaySignature) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment signature',
+      });
+    }
+
+    // Update order
+    order.razorpayPaymentId = razorpayPaymentId;
+    order.razorpaySignature = razorpaySignature;
+    order.isPaid = true;
+    order.status = 'accepted'; // Move to accepted after payment
+    order.acceptedAt = new Date();
+
+    await order.save();
+
+    return res.json({
+      success: true,
+      message: 'Payment verified successfully',
+      order,
+    });
+  } catch (err) {
+    console.error('Verify Payment Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Payment verification failed',
+    });
+  }
+});
+
 // GET /api/food/orders/:id - Get single order
 router.get('/orders/:id', authMiddleware, async (req, res) => {
   try {
@@ -620,6 +735,128 @@ router.post('/resell/:orderId/claim', authMiddleware, async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to claim order',
+    });
+  }
+});
+
+// POST /api/food/resell/:orderId/verify-payment
+router.post('/resell/:orderId/verify-payment', authMiddleware, async (req, res) => {
+  try {
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+
+    const { razorpayPaymentId, razorpayOrderId, razorpaySignature } = req.body;
+
+    const order = await FoodOrder.findById(req.params.orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+      });
+    }
+
+    // Check if buyer is the one who claimed it
+    if (order.resellBuyerId.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    // Create Razorpay order for resale if not exists
+    let razorpayResaleOrderId = razorpayOrderId;
+    
+    if (!razorpayResaleOrderId) {
+      const razorpayOrder = await razorpay.orders.create({
+        amount: Math.round(order.resellPrice * 100),
+        currency: 'INR',
+        receipt: `resale_${order._id.toString().slice(-8)}_${Date.now().toString(36).slice(-6)}`,
+      });
+      razorpayResaleOrderId = razorpayOrder.id;
+    }
+
+    // Verify signature
+    const expectedSig = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(razorpayResaleOrderId + '|' + razorpayPaymentId)
+      .digest('hex');
+
+    if (expectedSig !== razorpaySignature) {
+      // Payment failed - release order back to pool
+      order.resellStatus = 'listed';
+      order.resellBuyerId = null;
+      order.resellClaimedAt = null;
+      await order.save();
+
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment signature',
+      });
+    }
+
+    // Payment successful - finalize resale
+    order.resellStatus = 'sold';
+    order.isPaid = true;
+    order.status = 'accepted'; // Move to accepted, will be prepared and delivered
+    order.acceptedAt = new Date();
+
+    // Store resale payment info separately
+    order.resalePaymentInfo = {
+      razorpayPaymentId,
+      razorpayOrderId: razorpayResaleOrderId,
+      razorpaySignature,
+      paidAt: new Date(),
+    };
+
+    await order.save();
+
+    return res.json({
+      success: true,
+      message: 'Resale payment verified successfully',
+      order,
+    });
+  } catch (err) {
+    console.error('Verify Resale Payment Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Payment verification failed',
+    });
+  }
+});
+
+// POST /api/food/resell/expire-pending (internal endpoint)
+router.post('/resell/expire-pending', async (req, res) => {
+  try {
+    const now = new Date();
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+    // Find orders claimed but not paid within 5 minutes
+    const expiredClaims = await FoodOrder.find({
+      resellStatus: 'claimed',
+      resellClaimedAt: { $lt: fiveMinutesAgo },
+      isPaid: false,
+    });
+
+    for (const order of expiredClaims) {
+      // Release back to pool
+      order.resellStatus = 'listed';
+      order.resellBuyerId = null;
+      order.resellClaimedAt = null;
+      await order.save();
+    }
+
+    return res.json({
+      success: true,
+      message: `Expired ${expiredClaims.length} pending claims`,
+    });
+  } catch (err) {
+    console.error('Expire Pending Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to expire pending claims',
     });
   }
 });
