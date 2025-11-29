@@ -276,11 +276,18 @@ router.post('/orders/price-preview', authMiddleware, async (req, res) => {
     const eta = Math.round(restaurant.preparationTimeMin + distance * 3); // 3 min per km
 
     return res.json({
-      success: true,
-      pricing,
-      distance: Math.round(distance * 10) / 10,
-      eta,
-    });
+  success: true,
+  itemsTotal: pricing.itemsTotal,
+  platformFee: pricing.platformFee,
+  deliveryFee: pricing.deliveryFee,
+  distanceFee: pricing.distanceFee,
+  discounts: pricing.discounts,
+  gstAmount: pricing.gstAmount,
+  finalPayableAmount: pricing.finalPayableAmount,
+  distance: Math.round(distance * 10) / 10,
+  eta
+});
+
   } catch (err) {
     console.error('Price Preview Error:', err);
     return res.status(500).json({
