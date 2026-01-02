@@ -1,4 +1,3 @@
-// services/notificationService.js
 const admin = require("firebase-admin");
 const fs = require("fs");
 const path = require("path");
@@ -9,31 +8,40 @@ let firebaseInitialized = false;
    FIREBASE ADMIN INITIALIZATION
 ----------------------------------------- */
 try {
-  const {
-    FIREBASE_PROJECT_ID,
-    FIREBASE_CLIENT_EMAIL,
-    FIREBASE_PRIVATE_KEY,
-  } = process.env;
+  // ✅ OPTION 1: FULL JSON IN ENV (RENDER)
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    const serviceAccount = JSON.parse(
+      process.env.FIREBASE_SERVICE_ACCOUNT
+    );
 
-  // ✅ OPTION 1: ENV VARIABLES (Render / Production)
-  if (
-    FIREBASE_PROJECT_ID &&
-    FIREBASE_CLIENT_EMAIL &&
-    FIREBASE_PRIVATE_KEY
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+
+    firebaseInitialized = true;
+    console.log("✅ Firebase Admin initialized using FIREBASE_SERVICE_ACCOUNT");
+
+  }
+  // ✅ OPTION 2: SPLIT ENV VARS
+  else if (
+    process.env.FIREBASE_PROJECT_ID &&
+    process.env.FIREBASE_CLIENT_EMAIL &&
+    process.env.FIREBASE_PRIVATE_KEY
   ) {
     admin.initializeApp({
       credential: admin.credential.cert({
-        projectId: FIREBASE_PROJECT_ID,
-        clientEmail: FIREBASE_CLIENT_EMAIL,
-        privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
       }),
     });
 
     firebaseInitialized = true;
-    console.log("✅ Firebase Admin initialized using ENV credentials");
+    console.log("✅ Firebase Admin initialized using split ENV variables");
 
-  } else {
-    // ✅ OPTION 2: Local file (ONLY if it exists)
+  }
+  // ✅ OPTION 3: LOCAL FILE (ONLY IF EXISTS)
+  else {
     const serviceAccountPath = path.join(
       __dirname,
       "../firebase-service-account.json"
@@ -51,7 +59,7 @@ try {
 
     } else {
       console.warn(
-        "⚠️ Firebase credentials not found (env or local file). Notifications disabled."
+        "⚠️ Firebase credentials not found. Push notifications disabled."
       );
     }
   }
@@ -60,7 +68,7 @@ try {
 }
 
 /* -----------------------------------------
-   SEND SINGLE DEVICE NOTIFICATION
+   SEND SINGLE NOTIFICATION
 ----------------------------------------- */
 async function sendNotification(token, title, body, data = {}) {
   if (!token) return null;
