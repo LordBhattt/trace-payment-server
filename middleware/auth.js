@@ -14,7 +14,20 @@ function authMiddleware(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // contains { id, email, role, etc }
+
+    /*
+      🔑 NORMALIZE USER DATA FOR ALL MODULES (CAB + FOOD + RESELL)
+      auth.js signs: { id: user._id }
+    */
+    req.user = decoded;
+    req.userId = decoded.id; // ✅ THIS WAS MISSING
+
+    if (!req.userId) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid token payload" });
+    }
+
     next();
   } catch (error) {
     return res
