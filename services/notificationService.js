@@ -1,42 +1,64 @@
 // services/notificationService.js
 const admin = require("firebase-admin");
 
-// Initialize Firebase Admin
+let firebaseInitialized = false;
+
+/* -----------------------------------------
+   FIREBASE ADMIN INITIALIZATION
+----------------------------------------- */
 try {
-  let serviceAccount;
-  
-  // Check if running on Render (production)
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    console.log("📱 Using Firebase credentials from environment variable");
+  const {
+    FIREBASE_PROJECT_ID,
+    FIREBASE_CLIENT_EMAIL,
+    FIREBASE_PRIVATE_KEY,
+  } = process.env;
+
+  if (
+    FIREBASE_PROJECT_ID &&
+    FIREBASE_CLIENT_EMAIL &&
+    FIREBASE_PRIVATE_KEY
+  ) {
+    // ✅ Production / Render / CI
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: FIREBASE_PROJECT_ID,
+        clientEmail: FIREBASE_CLIENT_EMAIL,
+        privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      }),
+    });
+
+    firebaseInitialized = true;
+    console.log("✅ Firebase Admin initialized using ENV credentials");
   } else {
-    // Local development - use file
-    serviceAccount = require("../firebase-service-account.json");
-    console.log("📱 Using Firebase credentials from local file");
+    // 🧪 Local development fallback
+    const serviceAccount = require("../firebase-service-account.json");
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+
+    firebaseInitialized = true;
+    console.log("✅ Firebase Admin initialized using local service account");
   }
-
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-
-  console.log("✅ Firebase Admin initialized");
 } catch (err) {
   console.warn("⚠️ Firebase Admin not initialized:", err.message);
-  console.log("Push notifications will be disabled");
+  console.log("🚫 Push notifications will be disabled");
 }
 
-/**
- * Send notification to a single device
- */
+/* -----------------------------------------
+   SEND SINGLE DEVICE NOTIFICATION
+----------------------------------------- */
 async function sendNotification(token, title, body, data = {}) {
   if (!token) {
-    console.warn("No FCM token provided");
+    console.warn("⚠️ No FCM token provided");
     return null;
   }
 
-  // Check if Firebase is initialized
-  if (!admin.apps.length) {
-    console.warn("📱 [MOCK] Would send notification:", { token, title, body });
+  if (!firebaseInitialized) {
+    console.warn("📱 [MOCK] Notification skipped (Firebase not initialized)", {
+      title,
+      body,
+    });
     return null;
   }
 
@@ -69,26 +91,29 @@ async function sendNotification(token, title, body, data = {}) {
 
   try {
     const response = await admin.messaging().send(message);
-    console.log("✅ Notification sent:", response);
+    console.log("📲 Notification sent:", response);
     return response;
   } catch (error) {
-    console.error("❌ Notification error:", error);
+    console.error("❌ Notification error:", error.message);
     return null;
   }
 }
 
-/**
- * Send notification to multiple devices
- */
+/* -----------------------------------------
+   SEND MULTICAST NOTIFICATION
+----------------------------------------- */
 async function sendMulticastNotification(tokens, title, body, data = {}) {
   if (!tokens || tokens.length === 0) {
-    console.warn("No FCM tokens provided");
+    console.warn("⚠️ No FCM tokens provided");
     return null;
   }
 
-  // Check if Firebase is initialized
-  if (!admin.apps.length) {
-    console.warn("📱 [MOCK] Would send multicast notification to", tokens.length, "devices");
+  if (!firebaseInitialized) {
+    console.warn(
+      "📱 [MOCK] Multicast notification skipped",
+      tokens.length,
+      "devices"
+    );
     return null;
   }
 
@@ -109,10 +134,12 @@ async function sendMulticastNotification(tokens, title, body, data = {}) {
 
   try {
     const response = await admin.messaging().sendMulticast(message);
-    console.log(`✅ Sent to ${response.successCount}/${tokens.length} devices`);
+    console.log(
+      `📲 Sent to ${response.successCount}/${tokens.length} devices`
+    );
     return response;
   } catch (error) {
-    console.error("❌ Multicast notification error:", error);
+    console.error("❌ Multicast notification error:", error.message);
     return null;
   }
 }
