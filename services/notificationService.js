@@ -44,7 +44,7 @@ try {
   else {
     const serviceAccountPath = path.join(
       __dirname,
-      "../firebase-service-account.json"
+      "../firebase-credentials.json"
     );
 
     if (fs.existsSync(serviceAccountPath)) {
