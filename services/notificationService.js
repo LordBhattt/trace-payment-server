@@ -1,5 +1,7 @@
 // services/notificationService.js
 const admin = require("firebase-admin");
+const fs = require("fs");
+const path = require("path");
 
 let firebaseInitialized = false;
 
@@ -13,12 +15,12 @@ try {
     FIREBASE_PRIVATE_KEY,
   } = process.env;
 
+  // ✅ OPTION 1: ENV VARIABLES (Render / Production)
   if (
     FIREBASE_PROJECT_ID &&
     FIREBASE_CLIENT_EMAIL &&
     FIREBASE_PRIVATE_KEY
   ) {
-    // ✅ Production / Render / CI
     admin.initializeApp({
       credential: admin.credential.cert({
         projectId: FIREBASE_PROJECT_ID,
@@ -29,45 +31,48 @@ try {
 
     firebaseInitialized = true;
     console.log("✅ Firebase Admin initialized using ENV credentials");
+
   } else {
-    // 🧪 Local development fallback
-    const serviceAccount = require("../firebase-service-account.json");
+    // ✅ OPTION 2: Local file (ONLY if it exists)
+    const serviceAccountPath = path.join(
+      __dirname,
+      "../firebase-service-account.json"
+    );
 
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
+    if (fs.existsSync(serviceAccountPath)) {
+      const serviceAccount = require(serviceAccountPath);
 
-    firebaseInitialized = true;
-    console.log("✅ Firebase Admin initialized using local service account");
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+
+      firebaseInitialized = true;
+      console.log("✅ Firebase Admin initialized using local service account");
+
+    } else {
+      console.warn(
+        "⚠️ Firebase credentials not found (env or local file). Notifications disabled."
+      );
+    }
   }
 } catch (err) {
-  console.warn("⚠️ Firebase Admin not initialized:", err.message);
-  console.log("🚫 Push notifications will be disabled");
+  console.warn("⚠️ Firebase Admin initialization failed:", err.message);
 }
 
 /* -----------------------------------------
    SEND SINGLE DEVICE NOTIFICATION
 ----------------------------------------- */
 async function sendNotification(token, title, body, data = {}) {
-  if (!token) {
-    console.warn("⚠️ No FCM token provided");
-    return null;
-  }
+  if (!token) return null;
 
   if (!firebaseInitialized) {
-    console.warn("📱 [MOCK] Notification skipped (Firebase not initialized)", {
-      title,
-      body,
-    });
+    console.warn("📱 [MOCK] Notification skipped:", title);
     return null;
   }
 
   const message = {
     token,
-    notification: {
-      title,
-      body,
-    },
+    notification: { title, body },
     data: {
       ...data,
       timestamp: new Date().toISOString(),
@@ -90,11 +95,9 @@ async function sendNotification(token, title, body, data = {}) {
   };
 
   try {
-    const response = await admin.messaging().send(message);
-    console.log("📲 Notification sent:", response);
-    return response;
-  } catch (error) {
-    console.error("❌ Notification error:", error.message);
+    return await admin.messaging().send(message);
+  } catch (err) {
+    console.error("❌ Notification error:", err.message);
     return null;
   }
 }
@@ -103,14 +106,11 @@ async function sendNotification(token, title, body, data = {}) {
    SEND MULTICAST NOTIFICATION
 ----------------------------------------- */
 async function sendMulticastNotification(tokens, title, body, data = {}) {
-  if (!tokens || tokens.length === 0) {
-    console.warn("⚠️ No FCM tokens provided");
-    return null;
-  }
+  if (!tokens || tokens.length === 0) return null;
 
   if (!firebaseInitialized) {
     console.warn(
-      "📱 [MOCK] Multicast notification skipped",
+      "📱 [MOCK] Multicast notification skipped:",
       tokens.length,
       "devices"
     );
@@ -119,27 +119,18 @@ async function sendMulticastNotification(tokens, title, body, data = {}) {
 
   const message = {
     tokens,
-    notification: {
-      title,
-      body,
-    },
+    notification: { title, body },
     data: {
       ...data,
       timestamp: new Date().toISOString(),
     },
-    android: {
-      priority: "high",
-    },
+    android: { priority: "high" },
   };
 
   try {
-    const response = await admin.messaging().sendMulticast(message);
-    console.log(
-      `📲 Sent to ${response.successCount}/${tokens.length} devices`
-    );
-    return response;
-  } catch (error) {
-    console.error("❌ Multicast notification error:", error.message);
+    return await admin.messaging().sendMulticast(message);
+  } catch (err) {
+    console.error("❌ Multicast notification error:", err.message);
     return null;
   }
 }
