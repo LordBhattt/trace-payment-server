@@ -1,4 +1,4 @@
-// seedRestaurants.js - Run this file once to populate your database
+// seedRestaurants.js - Run this file once to populate your database with 200 restaurants
 const mongoose = require('mongoose');
 require('dotenv').config();
 
@@ -8,6 +8,168 @@ const MenuCategory = require('./models/MenuCategory');
 const MenuItem = require('./models/MenuItem');
 
 const MONGO_URI = process.env.MONGO_URI;
+
+// Mumbai coordinates center: 19.0760, 72.8777
+function getRandomMumbaiCoordinates() {
+  const centerLat = 19.0760;
+  const centerLon = 72.8777;
+  
+  // 10km radius (0.09 degrees ≈ 10km)
+  const radiusInDegrees = 0.09;
+  
+  const lat = centerLat + (Math.random() - 0.5) * 2 * radiusInDegrees;
+  const lon = centerLon + (Math.random() - 0.5) * 2 * radiusInDegrees;
+  
+  return { lat, lon };
+}
+
+const mumbaiAreas = [
+  'Andheri West', 'Andheri East', 'Bandra West', 'Bandra East', 'Juhu',
+  'Powai', 'Worli', 'Lower Parel', 'Dadar', 'Kurla', 'Ghatkopar',
+  'Mulund', 'Thane', 'Borivali', 'Kandivali', 'Malad', 'Goregaon',
+  'Vile Parle', 'Santa Cruz', 'Khar', 'Santacruz', 'Versova',
+  'Lokhandwala', 'Oshiwara', 'Jogeshwari', 'Vikhroli', 'Bhandup',
+  'Chembur', 'Wadala', 'Sion', 'Matunga', 'Mahim', 'Prabhadevi',
+];
+
+const restaurantTemplates = [
+  {
+    namePrefix: 'Spice Garden',
+    description: 'Authentic Indian cuisine with traditional spices and flavors',
+    cuisines: ['Indian', 'North Indian', 'Punjabi'],
+    coverImage: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800',
+    isVegOnly: false,
+    discount: 20,
+  },
+  {
+    namePrefix: 'Pizza Paradise',
+    description: 'Wood-fired pizzas with fresh Italian ingredients',
+    cuisines: ['Italian', 'Pizza', 'Fast Food'],
+    coverImage: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800',
+    isVegOnly: false,
+    discount: 25,
+  },
+  {
+    namePrefix: 'Burger Junction',
+    description: 'Gourmet burgers and loaded fries',
+    cuisines: ['American', 'Fast Food', 'Burgers'],
+    coverImage: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=800',
+    isVegOnly: false,
+    discount: 15,
+  },
+  {
+    namePrefix: 'Biryani House',
+    description: 'Aromatic biryanis prepared with authentic Hyderabadi spices',
+    cuisines: ['Indian', 'Biryani', 'Mughlai'],
+    coverImage: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=800',
+    isVegOnly: false,
+    discount: 20,
+  },
+  {
+    namePrefix: 'Dosa Express',
+    description: 'South Indian specialties - crispy dosas and filter coffee',
+    cuisines: ['South Indian', 'Dosa', 'Breakfast'],
+    coverImage: 'https://images.unsplash.com/photo-1694674362867-0f32e54d1ab7?w=800',
+    isVegOnly: true,
+    discount: 10,
+  },
+  {
+    namePrefix: 'Chinese Dragon',
+    description: 'Indo-Chinese fusion with bold flavors',
+    cuisines: ['Chinese', 'Asian', 'Fast Food'],
+    coverImage: 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=800',
+    isVegOnly: false,
+    discount: 18,
+  },
+  {
+    namePrefix: 'Tandoor King',
+    description: 'Tandoori specialties and kebabs',
+    cuisines: ['North Indian', 'Tandoor', 'Kebab'],
+    coverImage: 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=800',
+    isVegOnly: false,
+    discount: 22,
+  },
+  {
+    namePrefix: 'Veg Delight',
+    description: 'Pure vegetarian restaurant with diverse menu',
+    cuisines: ['Indian', 'North Indian', 'South Indian'],
+    coverImage: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800',
+    isVegOnly: true,
+    discount: 12,
+  },
+  {
+    namePrefix: 'Cafe Culture',
+    description: 'Cozy cafe with coffee, sandwiches and desserts',
+    cuisines: ['Cafe', 'Beverages', 'Snacks'],
+    coverImage: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=800',
+    isVegOnly: true,
+    discount: 15,
+  },
+  {
+    namePrefix: 'Street Bites',
+    description: 'Mumbai street food favorites',
+    cuisines: ['Street Food', 'Chaat', 'Fast Food'],
+    coverImage: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=800',
+    isVegOnly: true,
+    discount: 10,
+  },
+];
+
+const menuItemTemplates = {
+  'Indian': [
+    { name: 'Paneer Butter Masala', desc: 'Cottage cheese in rich tomato gravy', price: 220, isVeg: true, tags: ['bestseller'] },
+    { name: 'Butter Chicken', desc: 'Tender chicken in creamy tomato sauce', price: 280, isVeg: false, tags: ['bestseller'] },
+    { name: 'Dal Makhani', desc: 'Black lentils cooked overnight with butter', price: 180, isVeg: true, tags: [] },
+    { name: 'Palak Paneer', desc: 'Cottage cheese in spinach gravy', price: 200, isVeg: true, tags: [] },
+    { name: 'Chicken Tikka Masala', desc: 'Grilled chicken in spicy curry', price: 290, isVeg: false, tags: ['bestseller'] },
+    { name: 'Veg Korma', desc: 'Mixed vegetables in creamy cashew gravy', price: 190, isVeg: true, tags: [] },
+  ],
+  'Pizza': [
+    { name: 'Margherita Pizza', desc: 'Classic tomato, mozzarella and basil', price: 249, isVeg: true, tags: ['bestseller'] },
+    { name: 'Pepperoni Pizza', desc: 'Loaded with pepperoni and cheese', price: 349, isVeg: false, tags: [] },
+    { name: 'Farmhouse Pizza', desc: 'Veggies and cheese on crispy base', price: 299, isVeg: true, tags: [] },
+    { name: 'BBQ Chicken Pizza', desc: 'BBQ chicken with onions and peppers', price: 379, isVeg: false, tags: ['bestseller'] },
+    { name: 'Paneer Tikka Pizza', desc: 'Indian fusion with paneer tikka', price: 329, isVeg: true, tags: [] },
+  ],
+  'Burgers': [
+    { name: 'Classic Cheese Burger', desc: 'Beef patty with cheese and veggies', price: 199, isVeg: false, tags: ['bestseller'] },
+    { name: 'Veg Supreme Burger', desc: 'Crispy veg patty with special sauce', price: 149, isVeg: true, tags: [] },
+    { name: 'Chicken Burger', desc: 'Grilled chicken with mayo', price: 179, isVeg: false, tags: [] },
+    { name: 'Double Decker Burger', desc: 'Two patties with extra cheese', price: 249, isVeg: false, tags: ['bestseller'] },
+    { name: 'Paneer Burger', desc: 'Spiced paneer patty with mint chutney', price: 159, isVeg: true, tags: [] },
+  ],
+  'Biryani': [
+    { name: 'Chicken Biryani', desc: 'Aromatic rice with tender chicken', price: 299, isVeg: false, tags: ['bestseller'] },
+    { name: 'Mutton Biryani', desc: 'Slow-cooked mutton with basmati rice', price: 349, isVeg: false, tags: ['bestseller'] },
+    { name: 'Veg Biryani', desc: 'Mixed vegetables with fragrant rice', price: 199, isVeg: true, tags: [] },
+    { name: 'Egg Biryani', desc: 'Boiled eggs in spiced rice', price: 179, isVeg: false, tags: [] },
+    { name: 'Paneer Biryani', desc: 'Cottage cheese biryani', price: 229, isVeg: true, tags: [] },
+  ],
+  'South Indian': [
+    { name: 'Masala Dosa', desc: 'Crispy dosa with potato filling', price: 120, isVeg: true, tags: ['bestseller'] },
+    { name: 'Idli Sambar', desc: 'Steamed rice cakes with lentil curry', price: 80, isVeg: true, tags: [] },
+    { name: 'Medu Vada', desc: 'Crispy lentil donuts', price: 90, isVeg: true, tags: [] },
+    { name: 'Rava Dosa', desc: 'Crispy semolina crepe', price: 110, isVeg: true, tags: [] },
+    { name: 'Uttapam', desc: 'Thick pancake with toppings', price: 130, isVeg: true, tags: [] },
+  ],
+  'Chinese': [
+    { name: 'Veg Hakka Noodles', desc: 'Stir-fried noodles with vegetables', price: 150, isVeg: true, tags: ['bestseller'] },
+    { name: 'Chicken Fried Rice', desc: 'Fried rice with chicken and veggies', price: 180, isVeg: false, tags: [] },
+    { name: 'Veg Manchurian', desc: 'Fried veggie balls in spicy sauce', price: 160, isVeg: true, tags: [] },
+    { name: 'Chilli Chicken', desc: 'Spicy chicken with peppers', price: 220, isVeg: false, tags: ['bestseller'] },
+    { name: 'Spring Rolls', desc: 'Crispy vegetable rolls', price: 120, isVeg: true, tags: [] },
+  ],
+};
+
+const categories = ['Starters', 'Main Course', 'Breads', 'Rice', 'Desserts', 'Beverages'];
+
+function getItemsForCuisine(cuisine, isVegOnly) {
+  let items = menuItemTemplates[cuisine] || menuItemTemplates['Indian'];
+  if (isVegOnly) {
+    items = items.filter(item => item.isVeg);
+  }
+  return items;
+}
 
 const seedData = async () => {
   try {
@@ -20,285 +182,91 @@ const seedData = async () => {
     await MenuItem.deleteMany({});
     console.log('🗑️  Cleared existing data');
 
-    // Restaurant 1: Pizza Paradise
-    const pizzaParadise = await Restaurant.create({
-      name: 'Pizza Paradise',
-      description: 'Authentic Italian pizzas with fresh ingredients',
-      coverImageUrl: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800',
-      logoImageUrl: 'https://ui-avatars.com/api/?name=Pizza+Paradise&background=ff6b6b&color=fff',
-      location: {
-        lat: 18.5204,
-        lon: 73.8567,
-        address: 'FC Road, Pune',
-      },
-      cuisines: ['Italian', 'Pizza', 'Fast Food'],
-      avgRating: 4.5,
-      totalRatings: 1250,
-      isVegOnly: false,
-      deliveryRadiusKm: 8,
-      preparationTimeMin: 25,
-      discount: 25,
-    });
+    let restaurantCount = 0;
+    let categoryCount = 0;
+    let menuItemCount = 0;
 
-    const pizzaCat1 = await MenuCategory.create({
-      restaurantId: pizzaParadise._id,
-      name: 'Pizzas',
-      displayOrder: 1,
-    });
+    // Create 200 restaurants
+    for (let i = 0; i < 200; i++) {
+      const template = restaurantTemplates[i % restaurantTemplates.length];
+      const coords = getRandomMumbaiCoordinates();
+      const area = mumbaiAreas[Math.floor(Math.random() * mumbaiAreas.length)];
+      const suffix = Math.floor(i / restaurantTemplates.length) > 0 ? ` ${Math.floor(i / restaurantTemplates.length) + 1}` : '';
+      
+      const restaurant = await Restaurant.create({
+        name: `${template.namePrefix}${suffix}`,
+        description: template.description,
+        coverImageUrl: template.coverImage,
+        logoImageUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(template.namePrefix)}&background=random`,
+        location: {
+          lat: coords.lat,
+          lon: coords.lon,
+          address: `${Math.floor(Math.random() * 500) + 1}, ${area}, Mumbai`,
+        },
+        cuisines: template.cuisines,
+        avgRating: parseFloat((3.5 + Math.random() * 1.5).toFixed(1)),
+        totalRatings: Math.floor(Math.random() * 2000) + 100,
+        isVegOnly: template.isVegOnly,
+        deliveryRadiusKm: Math.floor(Math.random() * 5) + 5,
+        preparationTimeMin: Math.floor(Math.random() * 20) + 20,
+        discount: template.discount,
+      });
 
-    const pizzaCat2 = await MenuCategory.create({
-      restaurantId: pizzaParadise._id,
-      name: 'Sides',
-      displayOrder: 2,
-    });
+      restaurantCount++;
 
-    await MenuItem.create([
-      {
-        restaurantId: pizzaParadise._id,
-        categoryId: pizzaCat1._id,
-        category: 'Pizzas',
-        name: 'Margherita Pizza',
-        description: 'Classic pizza with tomato sauce, mozzarella, and basil',
-        price: 249,
-        imageUrl: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=400',
-        isVeg: true,
-        tags: ['bestseller', 'pizza'],
-        rating: 4.6,
-        ordersCount: 500,
-      },
-      {
-        restaurantId: pizzaParadise._id,
-        categoryId: pizzaCat1._id,
-        category: 'Pizzas',
-        name: 'Pepperoni Pizza',
-        description: 'Loaded with pepperoni and cheese',
-        price: 349,
-        imageUrl: 'https://images.unsplash.com/photo-1628840042765-356cda07504e?w=400',
-        isVeg: false,
-        tags: ['pizza', 'non-veg'],
-        rating: 4.7,
-        ordersCount: 450,
-      },
-      {
-        restaurantId: pizzaParadise._id,
-        categoryId: pizzaCat2._id,
-        category: 'Sides',
-        name: 'Garlic Bread',
-        description: 'Crispy garlic bread with herbs',
-        price: 99,
-        imageUrl: 'https://images.unsplash.com/photo-1573140401552-388e7c8b8b72?w=400',
-        isVeg: true,
-        tags: ['sides'],
-        rating: 4.4,
-      },
-    ]);
+      // Create 3-4 categories per restaurant
+      const numCategories = Math.floor(Math.random() * 2) + 3;
+      const selectedCategories = categories.slice(0, numCategories);
 
-    // Restaurant 2: Burger Hub
-    const burgerHub = await Restaurant.create({
-      name: 'Burger Hub',
-      description: 'Juicy burgers and loaded fries',
-      coverImageUrl: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=800',
-      logoImageUrl: 'https://ui-avatars.com/api/?name=Burger+Hub&background=ffd93d&color=000',
-      location: {
-        lat: 18.5314,
-        lon: 73.8446,
-        address: 'Koregaon Park, Pune',
-      },
-      cuisines: ['American', 'Fast Food', 'Burgers'],
-      avgRating: 4.3,
-      totalRatings: 890,
-      isVegOnly: false,
-      deliveryRadiusKm: 6,
-      preparationTimeMin: 20,
-      discount: 15,
-    });
+      for (let j = 0; j < selectedCategories.length; j++) {
+        const category = await MenuCategory.create({
+          restaurantId: restaurant._id,
+          name: selectedCategories[j],
+          displayOrder: j + 1,
+        });
 
-    const burgerCat1 = await MenuCategory.create({
-      restaurantId: burgerHub._id,
-      name: 'Burgers',
-      displayOrder: 1,
-    });
+        categoryCount++;
 
-    const burgerCat2 = await MenuCategory.create({
-      restaurantId: burgerHub._id,
-      name: 'Beverages',
-      displayOrder: 2,
-    });
+        // Get menu items based on cuisine
+        const mainCuisine = template.cuisines[0];
+        const availableItems = getItemsForCuisine(mainCuisine, template.isVegOnly);
+        
+        // Create 4-6 items per category
+        const numItems = Math.floor(Math.random() * 3) + 4;
+        for (let k = 0; k < numItems && k < availableItems.length; k++) {
+          const itemTemplate = availableItems[k];
+          
+          await MenuItem.create({
+            restaurantId: restaurant._id,
+            categoryId: category._id,
+            category: selectedCategories[j],
+            name: itemTemplate.name,
+            description: itemTemplate.desc,
+            price: itemTemplate.price + Math.floor(Math.random() * 50) - 25, // Random variation
+            imageUrl: `https://images.unsplash.com/photo-${1546069901000 + Math.floor(Math.random() * 100000000)}?w=400`,
+            isVeg: itemTemplate.isVeg,
+            tags: itemTemplate.tags,
+            rating: parseFloat((3.8 + Math.random() * 1.2).toFixed(1)),
+            ordersCount: Math.floor(Math.random() * 500),
+          });
 
-    await MenuItem.create([
-      {
-        restaurantId: burgerHub._id,
-        categoryId: burgerCat1._id,
-        category: 'Burgers',
-        name: 'Classic Cheese Burger',
-        description: 'Beef patty with cheese, lettuce, tomato',
-        price: 199,
-        imageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400',
-        isVeg: false,
-        tags: ['bestseller', 'burger'],
-        rating: 4.5,
-        ordersCount: 320,
-      },
-      {
-        restaurantId: burgerHub._id,
-        categoryId: burgerCat1._id,
-        category: 'Burgers',
-        name: 'Veg Delight Burger',
-        description: 'Crispy veg patty with special sauce',
-        price: 149,
-        imageUrl: 'https://images.unsplash.com/photo-1520072959219-c595dc870360?w=400',
-        isVeg: true,
-        tags: ['burger', 'veg'],
-        rating: 4.2,
-        ordersCount: 280,
-      },
-      {
-        restaurantId: burgerHub._id,
-        categoryId: burgerCat2._id,
-        category: 'Beverages',
-        name: 'Coke',
-        description: 'Chilled Coca-Cola',
-        price: 40,
-        imageUrl: 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=400',
-        isVeg: true,
-        tags: ['beverage'],
-        rating: 4.0,
-      },
-    ]);
+          menuItemCount++;
+        }
+      }
 
-    // Restaurant 3: Biryani House
-    const biryaniHouse = await Restaurant.create({
-      name: 'Biryani House',
-      description: 'Authentic Hyderabadi biryanis',
-      coverImageUrl: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=800',
-      logoImageUrl: 'https://ui-avatars.com/api/?name=Biryani+House&background=e74c3c&color=fff',
-      location: {
-        lat: 18.5074,
-        lon: 73.8077,
-        address: 'Shivaji Nagar, Pune',
-      },
-      cuisines: ['Indian', 'Biryani', 'North Indian'],
-      avgRating: 4.7,
-      totalRatings: 2100,
-      isVegOnly: false,
-      deliveryRadiusKm: 7,
-      preparationTimeMin: 35,
-      discount: 20,
-    });
+      // Progress indicator
+      if ((i + 1) % 20 === 0) {
+        console.log(`📦 Created ${i + 1}/200 restaurants...`);
+      }
+    }
 
-    const biryanCat1 = await MenuCategory.create({
-      restaurantId: biryaniHouse._id,
-      name: 'Biryani',
-      displayOrder: 1,
-    });
-
-    const biryanCat2 = await MenuCategory.create({
-      restaurantId: biryaniHouse._id,
-      name: 'Starters',
-      displayOrder: 2,
-    });
-
-    await MenuItem.create([
-      {
-        restaurantId: biryaniHouse._id,
-        categoryId: biryanCat1._id,
-        category: 'Biryani',
-        name: 'Chicken Biryani',
-        description: 'Aromatic basmati rice with tender chicken',
-        price: 299,
-        imageUrl: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400',
-        isVeg: false,
-        tags: ['bestseller', 'biryani', 'non-veg'],
-        rating: 4.8,
-        ordersCount: 850,
-      },
-      {
-        restaurantId: biryaniHouse._id,
-        categoryId: biryanCat1._id,
-        category: 'Biryani',
-        name: 'Veg Biryani',
-        description: 'Mixed vegetables with fragrant rice',
-        price: 199,
-        imageUrl: 'https://images.unsplash.com/photo-1642821373181-696a54913e93?w=400',
-        isVeg: true,
-        tags: ['biryani', 'veg'],
-        rating: 4.5,
-        ordersCount: 520,
-      },
-      {
-        restaurantId: biryaniHouse._id,
-        categoryId: biryanCat2._id,
-        category: 'Starters',
-        name: 'Chicken 65',
-        description: 'Spicy fried chicken pieces',
-        price: 180,
-        imageUrl: 'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?w=400',
-        isVeg: false,
-        tags: ['starter', 'spicy'],
-        rating: 4.6,
-      },
-    ]);
-
-    // Restaurant 4: Veg Delight (Pure Veg)
-    const vegDelight = await Restaurant.create({
-      name: 'Veg Delight',
-      description: 'Pure vegetarian Indian cuisine',
-      coverImageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800',
-      logoImageUrl: 'https://ui-avatars.com/api/?name=Veg+Delight&background=27ae60&color=fff',
-      location: {
-        lat: 18.5196,
-        lon: 73.8553,
-        address: 'Deccan, Pune',
-      },
-      cuisines: ['Indian', 'North Indian', 'South Indian'],
-      avgRating: 4.4,
-      totalRatings: 760,
-      isVegOnly: true,
-      deliveryRadiusKm: 5,
-      preparationTimeMin: 28,
-      discount: 10,
-    });
-
-    const vegCat1 = await MenuCategory.create({
-      restaurantId: vegDelight._id,
-      name: 'Main Course',
-      displayOrder: 1,
-    });
-
-    await MenuItem.create([
-      {
-        restaurantId: vegDelight._id,
-        categoryId: vegCat1._id,
-        category: 'Main Course',
-        name: 'Paneer Butter Masala',
-        description: 'Cottage cheese in rich tomato gravy',
-        price: 220,
-        imageUrl: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400',
-        isVeg: true,
-        tags: ['bestseller', 'north-indian'],
-        rating: 4.7,
-        ordersCount: 410,
-      },
-      {
-        restaurantId: vegDelight._id,
-        categoryId: vegCat1._id,
-        category: 'Main Course',
-        name: 'Dal Tadka',
-        description: 'Yellow lentils tempered with spices',
-        price: 150,
-        imageUrl: 'https://images.unsplash.com/photo-1546833998-877b37c2e5c6?w=400',
-        isVeg: true,
-        tags: ['dal', 'indian'],
-        rating: 4.3,
-        ordersCount: 290,
-      },
-    ]);
-
-    console.log('✅ Seed data created successfully!');
+    console.log('\n✅ Seed data created successfully!');
     console.log('\n📊 Summary:');
-    console.log(`  - ${await Restaurant.countDocuments()} restaurants`);
-    console.log(`  - ${await MenuCategory.countDocuments()} categories`);
-    console.log(`  - ${await MenuItem.countDocuments()} menu items`);
+    console.log(`  - ${restaurantCount} restaurants`);
+    console.log(`  - ${categoryCount} categories`);
+    console.log(`  - ${menuItemCount} menu items`);
+    console.log(`\n🌍 All restaurants are spread across Mumbai`);
+    console.log(`📍 Coverage area: ~10km radius from Mumbai center`);
     
     mongoose.connection.close();
     console.log('\n🔌 Database connection closed');
