@@ -1,4 +1,4 @@
-// routes/food.js
+// routes/food.js - Updated with auto-progression
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
@@ -8,6 +8,9 @@ const MenuCategory = require('../models/MenuCategory');
 const FoodOrder = require('../models/FoodOrder');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
+
+// ✅ IMPORT AUTO-PROGRESSION SERVICE
+const orderProgressionService = require('../services/orderProgressionService');
 
 /* ====================================
    HELPER FUNCTIONS
@@ -78,24 +81,20 @@ router.get('/restaurants', async (req, res) => {
 
     let query = { isActive: true };
 
-    // Filter by cuisine
     if (cuisine) {
       query.cuisines = { $in: [cuisine] };
     }
 
-    // Filter veg only
     if (vegOnly === 'true') {
       query.isVegOnly = true;
     }
 
-    // Search by name
     if (search) {
       query.name = { $regex: search, $options: 'i' };
     }
 
     let restaurants = await Restaurant.find(query).lean();
 
-    // Calculate distance if user location provided
     if (lat && lon) {
       const userLat = parseFloat(lat);
       const userLon = parseFloat(lon);
@@ -110,22 +109,17 @@ router.get('/restaurants', async (req, res) => {
         return { ...r, distance: Math.round(distance * 10) / 10 };
       });
 
-      // Filter by delivery radius
       restaurants = restaurants.filter(
         (r) => r.distance <= r.deliveryRadiusKm
       );
     }
 
-    // Sort
     if (sortBy === 'rating') {
       restaurants.sort((a, b) => b.avgRating - a.avgRating);
     } else if (sortBy === 'distance' && lat && lon) {
       restaurants.sort((a, b) => a.distance - b.distance);
     }
 
-    // NOTE:
-    // Your Flutter FoodApiService currently expects a *list* here.
-    // So we only return the array.
     return res.json(restaurants);
   } catch (err) {
     console.error('Get Restaurants Error:', err);
@@ -149,14 +143,12 @@ router.get('/restaurants/:id', async (req, res) => {
       });
     }
 
-    // Get categories
     const categories = await MenuCategory.find({
       restaurantId: id,
     })
       .sort({ displayOrder: 1 })
       .lean();
 
-    // Get menu items grouped by category
     const menuItemsPromises = categories.map(async (cat) => {
       const items = await MenuItem.find({
         restaurantId: id,
@@ -188,7 +180,7 @@ router.get('/restaurants/:id', async (req, res) => {
   }
 });
 
-// GET /api/food/items - Search menu items globally (basic)
+// GET /api/food/items - Search menu items globally
 router.get('/items', async (req, res) => {
   try {
     const { keyword, tag } = req.query;
@@ -218,7 +210,6 @@ router.get('/items', async (req, res) => {
   }
 });
 
-// Alias to match Flutter path /items/search
 router.get('/items/search', async (req, res) => {
   return router.handle(
     { ...req, url: '/items', originalUrl: '/items' },
@@ -236,7 +227,6 @@ router.post('/orders/price-preview', authMiddleware, async (req, res) => {
     const { items, restaurantId, deliveryLat, deliveryLon, deliveryMode } =
       req.body;
 
-    // Calculate items total
     let itemsTotal = 0;
     for (const item of items) {
       const menuItem = await MenuItem.findById(item.menuItemId);
@@ -253,7 +243,6 @@ router.post('/orders/price-preview', authMiddleware, async (req, res) => {
       itemsTotal += itemPrice;
     }
 
-    // Get restaurant location
     const restaurant = await Restaurant.findById(restaurantId);
     if (!restaurant) {
       return res.status(404).json({
@@ -262,7 +251,6 @@ router.post('/orders/price-preview', authMiddleware, async (req, res) => {
       });
     }
 
-    // Calculate distance
     const distance = calculateDistance(
       restaurant.location.lat,
       restaurant.location.lon,
@@ -270,23 +258,22 @@ router.post('/orders/price-preview', authMiddleware, async (req, res) => {
       deliveryLon
     );
 
-    // Calculate pricing
     const pricing = calculateFoodPricing(itemsTotal, distance, deliveryMode);
 
-    const eta = Math.round(restaurant.preparationTimeMin + distance * 3); // 3 min per km
+    const eta = Math.round(restaurant.preparationTimeMin + distance * 3);
 
     return res.json({
-  success: true,
-  itemsTotal: pricing.itemsTotal,
-  platformFee: pricing.platformFee,
-  deliveryFee: pricing.deliveryFee,
-  distanceFee: pricing.distanceFee,
-  discounts: pricing.discounts,
-  gstAmount: pricing.gstAmount,
-  finalPayableAmount: pricing.finalPayableAmount,
-  distance: Math.round(distance * 10) / 10,
-  eta
-});
+      success: true,
+      itemsTotal: pricing.itemsTotal,
+      platformFee: pricing.platformFee,
+      deliveryFee: pricing.deliveryFee,
+      distanceFee: pricing.distanceFee,
+      discounts: pricing.discounts,
+      gstAmount: pricing.gstAmount,
+      finalPayableAmount: pricing.finalPayableAmount,
+      distance: Math.round(distance * 10) / 10,
+      eta
+    });
 
   } catch (err) {
     console.error('Price Preview Error:', err);
@@ -314,7 +301,6 @@ router.post('/orders', authMiddleware, async (req, res) => {
     const clientPaymentMode =
       clientAmounts && clientAmounts.paymentMode === 'cod' ? 'cod' : 'online';
 
-    // Calculate items total and prepare items array
     let itemsTotal = 0;
     const orderItems = [];
 
@@ -348,7 +334,6 @@ router.post('/orders', authMiddleware, async (req, res) => {
       itemsTotal += itemPrice;
     }
 
-    // Get restaurant
     const restaurant = await Restaurant.findById(restaurantId);
     if (!restaurant) {
       return res.status(404).json({
@@ -357,7 +342,6 @@ router.post('/orders', authMiddleware, async (req, res) => {
       });
     }
 
-    // Calculate distance
     const distance = calculateDistance(
       restaurant.location.lat,
       restaurant.location.lon,
@@ -365,7 +349,6 @@ router.post('/orders', authMiddleware, async (req, res) => {
       deliveryLon
     );
 
-    // Check delivery radius
     if (distance > restaurant.deliveryRadiusKm) {
       return res.status(400).json({
         success: false,
@@ -373,19 +356,15 @@ router.post('/orders', authMiddleware, async (req, res) => {
       });
     }
 
-    // Calculate pricing on backend (ignore client money numbers)
     const amounts = calculateFoodPricing(itemsTotal, distance, deliveryMode);
 
-    // Generate OTPs
     const otpPickup = generateOTP();
     const otpDrop = generateOTP();
 
-    // ETA snapshot
     const etaMinutes = Math.round(
       restaurant.preparationTimeMin + distance * 3
     );
 
-    // Create order
     const order = await FoodOrder.create({
       userId: req.user.id,
       linkedRideId: linkedRideId || null,
@@ -406,6 +385,10 @@ router.post('/orders', authMiddleware, async (req, res) => {
       etaMinutes,
     });
 
+    // ✅ START AUTO-PROGRESSION FOR THIS ORDER
+    orderProgressionService.startAutoProgression(order._id.toString());
+    console.log(`🚀 Auto-progression started for order: ${order._id}`);
+
     return res.json({ success: true, order });
   } catch (err) {
     console.error('Create Order Error:', err);
@@ -420,7 +403,6 @@ router.post('/orders', authMiddleware, async (req, res) => {
    PAYMENT INTEGRATION
 ==================================== */
 
-// POST /api/food/orders/:id/create-razorpay-order
 router.post(
   '/orders/:id/create-razorpay-order',
   authMiddleware,
@@ -445,16 +427,14 @@ router.post(
 
       const amount = order.amounts.finalPayableAmount;
 
-      // Create Razorpay order
       const razorpayOrder = await razorpay.orders.create({
-        amount: Math.round(amount * 100), // Convert to paise
+        amount: Math.round(amount * 100),
         currency: 'INR',
         receipt: `food_${order._id
           .toString()
           .slice(-8)}_${Date.now().toString(36).slice(-6)}`,
       });
 
-      // Save Razorpay order ID
       order.razorpayOrderId = razorpayOrder.id;
       await order.save();
 
@@ -473,7 +453,6 @@ router.post(
   }
 );
 
-// POST /api/food/orders/:id/verify-payment
 router.post(
   '/orders/:id/verify-payment',
   authMiddleware,
@@ -493,7 +472,6 @@ router.post(
         });
       }
 
-      // Already paid (idempotent)
       if (order.isPaid && order.razorpayPaymentId === razorpayPaymentId) {
         return res.json({
           success: true,
@@ -502,7 +480,6 @@ router.post(
         });
       }
 
-      // Verify signature
       const expectedSig = crypto
         .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
         .update(order.razorpayOrderId + '|' + razorpayPaymentId)
@@ -515,11 +492,10 @@ router.post(
         });
       }
 
-      // Update order
       order.razorpayPaymentId = razorpayPaymentId;
       order.razorpaySignature = razorpaySignature;
       order.isPaid = true;
-      order.status = 'accepted'; // Move to accepted after payment
+      order.status = 'accepted';
       order.acceptedAt = new Date();
 
       await order.save();
@@ -543,7 +519,6 @@ router.post(
    ORDER READ / HISTORY / CANCEL
 ==================================== */
 
-// GET /api/food/orders/:id - Get single order
 router.get('/orders/:id', authMiddleware, async (req, res) => {
   try {
     const order = await FoodOrder.findOne({
@@ -570,7 +545,6 @@ router.get('/orders/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/food/orders - Get order history
 router.get('/orders', authMiddleware, async (req, res) => {
   try {
     const orders = await FoodOrder.find({ userId: req.user.id })
@@ -588,7 +562,7 @@ router.get('/orders', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/food/orders/:id/cancel - Cancel order
+// ✅ UPDATED CANCEL ENDPOINT - Only allow cancellation before "preparing"
 router.post('/orders/:id/cancel', authMiddleware, async (req, res) => {
   try {
     const { reason } = req.body;
@@ -605,7 +579,6 @@ router.post('/orders/:id/cancel', authMiddleware, async (req, res) => {
       });
     }
 
-    // Check if already cancelled/delivered
     if (order.status === 'cancelled' || order.status === 'delivered') {
       return res.status(400).json({
         success: false,
@@ -613,24 +586,20 @@ router.post('/orders/:id/cancel', authMiddleware, async (req, res) => {
       });
     }
 
-    // Check if in preparing or later stage
-    const preparingStages = [
-      'preparing',
-      'ready_for_pickup',
-      'picked_up',
-      'on_the_way',
-    ];
+    // ✅ CANCELLATION RULES:
+    // - Can cancel: 'placed', 'accepted'
+    // - Cannot cancel: 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'
+    const cancellableStatuses = ['placed', 'accepted'];
 
-    if (preparingStages.includes(order.status)) {
-      // Customer still pays, but order becomes resellable
-      order.originalCustomerPaysFull = true;
-      order.isResellable = true;
-      order.resellStatus = 'listed';
-      order.resellPrice = Math.round(
-        order.amounts.finalPayableAmount * 0.5
-      );
-      order.resellListedAt = new Date();
+    if (!cancellableStatuses.includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot cancel order. Food is already being prepared (status: ${order.status})`,
+      });
     }
+
+    // ✅ STOP AUTO-PROGRESSION
+    orderProgressionService.stopAutoProgression(order._id.toString());
 
     order.status = 'cancelled';
     order.isCancelled = true;
@@ -639,7 +608,11 @@ router.post('/orders/:id/cancel', authMiddleware, async (req, res) => {
 
     await order.save();
 
-    return res.json({ success: true, order });
+    return res.json({ 
+      success: true, 
+      message: 'Order cancelled successfully',
+      order 
+    });
   } catch (err) {
     console.error('Cancel Order Error:', err);
     return res.status(500).json({
@@ -650,10 +623,9 @@ router.post('/orders/:id/cancel', authMiddleware, async (req, res) => {
 });
 
 /* ====================================
-   RESALE ENDPOINTS
+   RESALE ENDPOINTS (UNCHANGED)
 ==================================== */
 
-// GET /api/food/resell/nearby - Get nearby resellable orders
 router.get('/resell/nearby', authMiddleware, async (req, res) => {
   try {
     const { lat, lon, radius = 5 } = req.query;
@@ -668,7 +640,6 @@ router.get('/resell/nearby', authMiddleware, async (req, res) => {
     const userLat = parseFloat(lat);
     const userLon = parseFloat(lon);
 
-    // Get all listed resellable orders
     const orders = await FoodOrder.find({
       isResellable: true,
       resellStatus: 'listed',
@@ -676,24 +647,20 @@ router.get('/resell/nearby', authMiddleware, async (req, res) => {
       .populate('restaurantId', 'name location coverImageUrl')
       .lean();
 
-    // Filter by distance and check expiry
     const nearbyOrders = [];
     const now = new Date();
 
     for (const order of orders) {
-      // Check if expired (45 min from listing)
       const listTime = new Date(order.resellListedAt);
       const minsSinceListed = (now - listTime) / 60000;
 
       if (minsSinceListed > 45) {
-        // Mark as expired
         await FoodOrder.findByIdAndUpdate(order._id, {
           resellStatus: 'expired',
         });
         continue;
       }
 
-      // Calculate distance to delivery location
       const distance = calculateDistance(
         userLat,
         userLon,
@@ -710,7 +677,6 @@ router.get('/resell/nearby', authMiddleware, async (req, res) => {
       }
     }
 
-    // Sort by distance
     nearbyOrders.sort((a, b) => a.distance - b.distance);
 
     return res.json({ success: true, orders: nearbyOrders });
@@ -723,7 +689,6 @@ router.get('/resell/nearby', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/food/resell/:orderId/claim - Claim resale order
 router.post('/resell/:orderId/claim', authMiddleware, async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -738,7 +703,6 @@ router.post('/resell/:orderId/claim', authMiddleware, async (req, res) => {
       });
     }
 
-    // Check if still available
     if (order.resellStatus !== 'listed') {
       return res.status(400).json({
         success: false,
@@ -746,7 +710,6 @@ router.post('/resell/:orderId/claim', authMiddleware, async (req, res) => {
       });
     }
 
-    // Check if not expired
     const now = new Date();
     const listTime = new Date(order.resellListedAt);
     const minsSinceListed = (now - listTime) / 60000;
@@ -761,12 +724,10 @@ router.post('/resell/:orderId/claim', authMiddleware, async (req, res) => {
       });
     }
 
-    // Mark as claimed
     order.resellStatus = 'claimed';
     order.resellBuyerId = req.user.id;
     order.resellClaimedAt = new Date();
 
-    // Update delivery location if provided
     if (newDeliveryLat && newDeliveryLon && newDeliveryAddress) {
       order.locationDelivery = {
         lat: newDeliveryLat,
@@ -777,7 +738,6 @@ router.post('/resell/:orderId/claim', authMiddleware, async (req, res) => {
 
     await order.save();
 
-    // Return order with resell price for payment
     return res.json({
       success: true,
       order,
@@ -792,7 +752,6 @@ router.post('/resell/:orderId/claim', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/food/resell/:orderId/verify-payment
 router.post(
   '/resell/:orderId/verify-payment',
   authMiddleware,
@@ -815,7 +774,6 @@ router.post(
         });
       }
 
-      // Check if buyer is the one who claimed it
       if (order.resellBuyerId.toString() !== req.user.id) {
         return res.status(403).json({
           success: false,
@@ -823,7 +781,6 @@ router.post(
         });
       }
 
-      // Create Razorpay order for resale if not exists
       let razorpayResaleOrderId = razorpayOrderId;
 
       if (!razorpayResaleOrderId) {
@@ -837,14 +794,12 @@ router.post(
         razorpayResaleOrderId = razorpayOrder.id;
       }
 
-      // Verify signature
       const expectedSig = crypto
         .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
         .update(razorpayResaleOrderId + '|' + razorpayPaymentId)
         .digest('hex');
 
       if (expectedSig !== razorpaySignature) {
-        // Payment failed - release order back to pool
         order.resellStatus = 'listed';
         order.resellBuyerId = null;
         order.resellClaimedAt = null;
@@ -856,13 +811,11 @@ router.post(
         });
       }
 
-      // Payment successful - finalize resale
       order.resellStatus = 'sold';
       order.isPaid = true;
-      order.status = 'accepted'; // Move to accepted, will be prepared and delivered
+      order.status = 'accepted';
       order.acceptedAt = new Date();
 
-      // Store resale payment info separately
       order.resalePaymentInfo = {
         razorpayPaymentId,
         razorpayOrderId: razorpayResaleOrderId,
@@ -871,6 +824,9 @@ router.post(
       };
 
       await order.save();
+
+      // ✅ START AUTO-PROGRESSION FOR RESOLD ORDER
+      orderProgressionService.startAutoProgression(order._id.toString());
 
       return res.json({
         success: true,
@@ -887,13 +843,11 @@ router.post(
   }
 );
 
-// POST /api/food/resell/expire-pending (internal endpoint)
 router.post('/resell/expire-pending', async (req, res) => {
   try {
     const now = new Date();
     const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
-    // Find orders claimed but not paid within 5 minutes
     const expiredClaims = await FoodOrder.find({
       resellStatus: 'claimed',
       resellClaimedAt: { $lt: fiveMinutesAgo },
@@ -901,7 +855,6 @@ router.post('/resell/expire-pending', async (req, res) => {
     });
 
     for (const order of expiredClaims) {
-      // Release back to pool
       order.resellStatus = 'listed';
       order.resellBuyerId = null;
       order.resellClaimedAt = null;
